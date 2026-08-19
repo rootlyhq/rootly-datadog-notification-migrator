@@ -23,6 +23,9 @@
   "sideEffects": false,
   "type": "module",
   "bin": "./dist/cli.js",
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=24"
   },

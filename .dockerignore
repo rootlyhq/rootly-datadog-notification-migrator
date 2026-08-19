@@ -1,0 +1,12 @@
+.env
+.env.*
+.git
+.github
+.yarn
+coverage
+dist
+node_modules
+release
+run-*.csv
+run-*.json
+test
