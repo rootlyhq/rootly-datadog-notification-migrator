@@ -58,7 +58,7 @@ wizard with the current directory mounted for private reports:
 docker run --rm -it \
   --env-file .env \
   --volume "$PWD:/work" \
-  ghcr.io/rootlyhq/rootly-datadog-notification-migrator:0.2.0
+  ghcr.io/rootlyhq/rootly-datadog-notification-migrator:0.3.0
 ```
 
 Use a version tag in automation instead of `latest`. Release images run as a
@@ -69,7 +69,7 @@ The same release also contains an installable npm-format tarball:
 
 ```bash
 npm install --global \
-  https://github.com/rootlyhq/rootly-datadog-notification-migrator/releases/download/v0.2.0/rootly-datadog-notification-migrator-0.2.0.tgz
+  https://github.com/rootlyhq/rootly-datadog-notification-migrator/releases/download/v0.3.0/rootly-datadog-notification-migrator-0.3.0.tgz
 ```
 
 Environment variables already set in the shell are detected automatically. If
