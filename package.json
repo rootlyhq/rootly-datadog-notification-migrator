@@ -1,0 +1,57 @@
+{
+  "name": "rootly-datadog-notification-migrator",
+  "version": "0.1.0",
+  "description": "Interactively migrates Datadog monitor notifications from PagerDuty and Opsgenie to Rootly webhooks.",
+  "private": true,
+  "license": "MIT",
+  "author": "Rootly <support@rootly.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rootlyhq/rootly-datadog-notification-migrator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rootlyhq/rootly-datadog-notification-migrator/issues"
+  },
+  "homepage": "https://github.com/rootlyhq/rootly-datadog-notification-migrator#readme",
+  "keywords": [
+    "rootly",
+    "datadog",
+    "pagerduty",
+    "opsgenie",
+    "migration"
+  ],
+  "sideEffects": false,
+  "type": "module",
+  "bin": "./dist/cli.js",
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "yarn@4.18.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "yarn format:check && yarn lint && yarn typecheck && yarn test && yarn build",
+    "dev": "tsx src/cli.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "start": "tsx src/cli.ts",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.5.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.13.3",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.8.1",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^4.1.10"
+  }
+}

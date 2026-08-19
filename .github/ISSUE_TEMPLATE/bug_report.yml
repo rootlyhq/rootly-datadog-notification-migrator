@@ -1,0 +1,33 @@
+name: Bug report
+description: Report a reproducible problem without including credentials or customer data.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include API keys, alert-source secrets, monitor payloads, or customer data.
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options: [PagerDuty, Opsgenie, Not provider-specific]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened?
+      description: Include sanitized steps, expected behavior, and actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Sanitized report excerpt
+      description: Remove monitor content, service identifiers, and all credentials first.

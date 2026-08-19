@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+.DS_Store
+coverage/
+dist/
+node_modules/
+run-*.csv
+run-*.json
+.yarn/install-state.gz
