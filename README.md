@@ -73,7 +73,7 @@ yarn start
 
 The wizard:
 
-1. Selects PagerDuty or Opsgenie.
+1. Selects PagerDuty, Opsgenie, or both providers in one run.
 2. Collects only missing credentials.
 3. validates the three API connections and response shapes.
 4. Discovers source notifications and Rootly service mappings.
@@ -96,6 +96,16 @@ Apply Opsgenie migrations:
 ```bash
 yarn start --from opsgenie --non-interactive --apply
 ```
+
+Preview both providers in a single atomic plan:
+
+```bash
+yarn start --from all --non-interactive
+```
+
+An `all` run requires both provider tokens. It scans Datadog and Rootly once,
+combines all proposed monitor changes into one preview, and blocks apply if the
+providers would reuse a webhook name for different Rootly services.
 
 Choose a report path prefix:
 

@@ -17,7 +17,7 @@ afterEach(async () => {
 });
 
 const plan: MigrationPlan = {
-  provider: "pagerduty",
+  providers: ["pagerduty"],
   monitorCount: 1,
   scannedNotificationCount: 1,
   webhooks: [

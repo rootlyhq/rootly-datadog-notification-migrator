@@ -55,15 +55,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     config.rootlyApiUrl,
     config.rootlyApiToken,
   );
-  const provider = createProvider(config.provider, http, config.providerApiUrl);
-  const engine = new MigrationEngine(
-    datadog,
-    rootly,
-    provider,
-    config.providerToken,
-  );
+  const providers = config.providers.map(({ id, token, apiUrl }) => ({
+    adapter: createProvider(id, http, apiUrl),
+    token,
+  }));
+  const engine = new MigrationEngine(datadog, rootly, providers);
 
-  console.log(`Inspecting Datadog, Rootly, and ${provider.displayName}...`);
+  console.log(
+    `Inspecting Datadog, Rootly, and ${providers.map(({ adapter }) => adapter.displayName).join(" and ")}...`,
+  );
   const plan = await engine.plan();
   printPlan(plan);
 
@@ -140,7 +140,7 @@ Usage:
   rootly-datadog-notification-migrator --from <provider> [options]
 
 Options:
-  -f, --from <provider>    pagerduty or opsgenie
+  -f, --from <provider>    pagerduty, opsgenie, or all
       --apply              Apply the previewed changes
       --non-interactive    Disable prompts; credentials come from the environment
   -o, --output <prefix>    Report path prefix (default: run-<timestamp>)
