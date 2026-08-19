@@ -2,10 +2,14 @@ import { password, select } from "@inquirer/prompts";
 import { parseArgs } from "node:util";
 
 import { PROVIDER_IDS } from "./types.js";
-import type { MigrationConfig, ProviderId } from "./types.js";
+import type {
+  MigrationConfig,
+  ProviderId,
+  ProviderSelection,
+} from "./types.js";
 
 export interface CliOptions {
-  provider?: ProviderId;
+  provider?: ProviderSelection;
   apply: boolean;
   nonInteractive: boolean;
   outputPrefix?: string;
@@ -14,15 +18,16 @@ export interface CliOptions {
 }
 
 export interface PromptAdapter {
-  selectProvider(): Promise<ProviderId>;
+  selectProvider(): Promise<ProviderSelection>;
   secret(message: string): Promise<string>;
 }
 
 const defaultPrompts: PromptAdapter = {
   async selectProvider() {
-    return select<ProviderId>({
-      message: "Which notification provider are you migrating from?",
+    return select<ProviderSelection>({
+      message: "Which notification providers are you migrating from?",
       choices: [
+        { name: "PagerDuty and Opsgenie", value: "all" },
         { name: "PagerDuty", value: "pagerduty" },
         { name: "Opsgenie", value: "opsgenie" },
       ],
@@ -49,10 +54,10 @@ export function parseCliOptions(argv: string[]): CliOptions {
   });
   const providerValue = parsed.values.from;
 
-  if (providerValue && !isProviderId(providerValue)) {
+  if (providerValue && !isProviderSelection(providerValue)) {
     throw new Error(`Unsupported provider: ${providerValue}`);
   }
-  const provider = providerValue as ProviderId | undefined;
+  const provider = providerValue as ProviderSelection | undefined;
 
   return {
     ...(provider ? { provider } : {}),
@@ -72,11 +77,11 @@ export async function collectConfig(
     process.stdout.isTTY,
   prompts: PromptAdapter = defaultPrompts,
 ): Promise<MigrationConfig> {
-  const provider =
+  const selection =
     options.provider ??
     (interactive ? await prompts.selectProvider() : missingProvider());
-  const providerTokenVariable =
-    provider === "pagerduty" ? "PAGERDUTY_API_TOKEN" : "OPSGENIE_API_TOKEN";
+  const providerIds: ProviderId[] =
+    selection === "all" ? [...PROVIDER_IDS] : [selection];
 
   const credentials: Record<string, string> = {};
   const requiredCredentials = [
@@ -84,7 +89,6 @@ export async function collectConfig(
     ["DATADOG_APP_KEY", "Datadog application key"],
     ["ROOTLY_API_TOKEN", "Rootly API token"],
     ["ROOTLY_ALERT_SOURCE_SECRET", "Rootly alert source secret"],
-    [providerTokenVariable, `${providerLabel(provider)} API token`],
   ] as const;
   for (const [variable, label] of requiredCredentials) {
     credentials[variable] = await credential(
@@ -96,13 +100,33 @@ export async function collectConfig(
     );
   }
 
+  const providers = [];
+  for (const provider of providerIds) {
+    const tokenVariable = tokenEnvironmentVariable(provider);
+    const token = await credential(
+      tokenVariable,
+      `${providerLabel(provider)} API token`,
+      environment,
+      interactive,
+      prompts,
+    );
+    providers.push({
+      id: provider,
+      token,
+      apiUrl: validUrl(
+        provider === "pagerduty"
+          ? (environment.PAGERDUTY_API_URL ?? "https://api.pagerduty.com")
+          : (environment.OPSGENIE_API_URL ?? "https://api.opsgenie.com"),
+        provider === "pagerduty" ? "PAGERDUTY_API_URL" : "OPSGENIE_API_URL",
+      ),
+    });
+  }
+
   return {
-    provider,
     datadogApiKey: credentials.DATADOG_API_KEY ?? "",
     datadogAppKey: credentials.DATADOG_APP_KEY ?? "",
     rootlyApiToken: credentials.ROOTLY_API_TOKEN ?? "",
     rootlyAlertSourceSecret: credentials.ROOTLY_ALERT_SOURCE_SECRET ?? "",
-    providerToken: credentials[providerTokenVariable] ?? "",
     datadogApiUrl: validUrl(
       environment.DATADOG_API_URL ?? "https://api.datadoghq.com/api/v1",
       "DATADOG_API_URL",
@@ -111,12 +135,7 @@ export async function collectConfig(
       environment.ROOTLY_API_URL ?? "https://api.rootly.com/v1",
       "ROOTLY_API_URL",
     ),
-    providerApiUrl: validUrl(
-      provider === "pagerduty"
-        ? (environment.PAGERDUTY_API_URL ?? "https://api.pagerduty.com")
-        : (environment.OPSGENIE_API_URL ?? "https://api.opsgenie.com"),
-      provider === "pagerduty" ? "PAGERDUTY_API_URL" : "OPSGENIE_API_URL",
-    ),
+    providers,
   };
 }
 
@@ -150,14 +169,22 @@ function validUrl(value: string, variable: string): string {
   }
 }
 
-function isProviderId(value: string): value is ProviderId {
-  return PROVIDER_IDS.some((provider) => provider === value);
+function isProviderSelection(value: string): value is ProviderSelection {
+  return value === "all" || PROVIDER_IDS.some((provider) => provider === value);
 }
 
 function missingProvider(): never {
-  throw new Error("Missing --from pagerduty|opsgenie in non-interactive mode");
+  throw new Error(
+    "Missing --from pagerduty|opsgenie|all in non-interactive mode",
+  );
 }
 
 function providerLabel(provider: ProviderId): string {
   return provider === "pagerduty" ? "PagerDuty" : "Opsgenie";
+}
+
+function tokenEnvironmentVariable(provider: ProviderId): string {
+  return provider === "pagerduty"
+    ? "PAGERDUTY_API_TOKEN"
+    : "OPSGENIE_API_TOKEN";
 }

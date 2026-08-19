@@ -5,7 +5,7 @@ import {
   parseCliOptions,
   type PromptAdapter,
 } from "../src/config.js";
-import type { ProviderId } from "../src/types.js";
+import type { ProviderSelection } from "../src/types.js";
 
 const baseOptions = {
   apply: false,
@@ -40,6 +40,10 @@ describe("parseCliOptions", () => {
       "Unsupported provider",
     );
   });
+
+  it("accepts all providers", () => {
+    expect(parseCliOptions(["--from", "all"]).provider).toBe("all");
+  });
 });
 
 describe("collectConfig", () => {
@@ -56,22 +60,55 @@ describe("collectConfig", () => {
       false,
     );
 
-    expect(config.providerToken).toBe("pd");
-    expect(config.providerApiUrl).toBe("https://api.pagerduty.com");
+    expect(config.providers).toEqual([
+      {
+        id: "pagerduty",
+        token: "pd",
+        apiUrl: "https://api.pagerduty.com",
+      },
+    ]);
   });
 
   it("prompts sequentially for missing credentials", async () => {
     const prompts: PromptAdapter = {
-      selectProvider: vi.fn(async (): Promise<ProviderId> =>
+      selectProvider: vi.fn(async (): Promise<ProviderSelection> =>
         Promise.resolve("opsgenie"),
       ),
       secret: vi.fn(async (label: string) => Promise.resolve(`value:${label}`)),
     };
     const config = await collectConfig(baseOptions, {}, true, prompts);
 
-    expect(config.provider).toBe("opsgenie");
+    expect(config.providers[0]?.id).toBe("opsgenie");
     expect(prompts.secret).toHaveBeenCalledTimes(5);
     expect(config.datadogApiKey).toBe("value:Datadog API key");
+  });
+
+  it("loads both provider credentials for an all-provider run", async () => {
+    const config = await collectConfig(
+      { ...baseOptions, provider: "all" },
+      {
+        DATADOG_API_KEY: "dd-api",
+        DATADOG_APP_KEY: "dd-app",
+        ROOTLY_API_TOKEN: "rootly",
+        ROOTLY_ALERT_SOURCE_SECRET: "secret",
+        PAGERDUTY_API_TOKEN: "pd",
+        OPSGENIE_API_TOKEN: "og",
+      },
+      false,
+    );
+
+    expect(config.providers).toEqual([
+      {
+        id: "pagerduty",
+        token: "pd",
+        apiUrl: "https://api.pagerduty.com",
+      },
+      {
+        id: "opsgenie",
+        token: "og",
+        apiUrl: "https://api.opsgenie.com",
+      },
+    ]);
   });
 
   it("fails when automation credentials are missing", async () => {

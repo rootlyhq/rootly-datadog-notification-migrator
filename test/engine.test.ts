@@ -60,7 +60,11 @@ function fixture(
 
   return {
     datadog,
-    engine: new MigrationEngine(datadog, rootly, provider, "token"),
+    rootly,
+    provider,
+    engine: new MigrationEngine(datadog, rootly, [
+      { adapter: provider, token: "token" },
+    ]),
   };
 }
 
@@ -76,6 +80,11 @@ describe("MigrationEngine.plan", () => {
         name: "rootly-production",
         serviceName: "Production",
         rootlyServiceId: "rootly-1",
+      },
+      {
+        name: "rootly-existing",
+        serviceName: "Existing",
+        rootlyServiceId: "rootly-2",
       },
     ]);
     expect(plan.updates[0]?.newMessage).toContain(
@@ -150,6 +159,27 @@ describe("MigrationEngine.plan", () => {
     });
   });
 
+  it("verifies a webhook already mentioned by the monitor", async () => {
+    const { engine, datadog } = fixture({
+      monitors: [
+        {
+          id: 1,
+          message: "@pagerduty-Production @webhook-rootly-production",
+        },
+      ],
+      providerServices: [{ id: "pd-1", name: "Production" }],
+      rootlyServices: [
+        { id: "rootly-1", attributes: { pagerduty_id: "pd-1" } },
+      ],
+    });
+
+    await engine.plan();
+
+    expect(datadog.validateWebhookAvailability).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "rootly-production" }),
+    );
+  });
+
   it("fails closed when webhook inspection itself fails", async () => {
     const { engine, datadog } = fixture();
     vi.mocked(datadog.validateWebhookAvailability).mockRejectedValueOnce(
@@ -157,6 +187,77 @@ describe("MigrationEngine.plan", () => {
     );
 
     await expect(engine.plan()).rejects.toThrow("Datadog unavailable");
+  });
+
+  it("plans PagerDuty and Opsgenie changes in one monitor update", async () => {
+    const { datadog, rootly, provider } = fixture({
+      monitors: [
+        {
+          id: 7,
+          message: "@pagerduty-Production @opsgenie-Payments",
+        },
+      ],
+      providerServices: [{ id: "pd-1", name: "Production" }],
+      rootlyServices: [
+        { id: "rootly-1", attributes: { pagerduty_id: "pd-1" } },
+        { id: "rootly-2", attributes: { opsgenie_id: "og-1" } },
+      ],
+    });
+    const opsgenie: ProviderAdapter = {
+      id: "opsgenie",
+      displayName: "Opsgenie",
+      notificationPrefix: "@opsgenie-",
+      rootlyAttribute: "opsgenie_id",
+      tokenEnvironmentVariable: "OPSGENIE_API_TOKEN",
+      listServices: vi.fn(async () =>
+        Promise.resolve([{ id: "og-1", name: "Payments" }]),
+      ),
+    };
+    const engine = new MigrationEngine(datadog, rootly, [
+      { adapter: provider, token: "pd-token" },
+      { adapter: opsgenie, token: "og-token" },
+    ]);
+
+    const plan = await engine.plan();
+
+    expect(plan.providers).toEqual(["pagerduty", "opsgenie"]);
+    expect(plan.scannedNotificationCount).toBe(2);
+    expect(plan.updates).toHaveLength(1);
+    expect(plan.updates[0]?.newMessage).toContain(
+      "@pagerduty-Production @webhook-rootly-production",
+    );
+    expect(plan.updates[0]?.newMessage).toContain(
+      "@opsgenie-Payments @webhook-rootly-payments",
+    );
+  });
+
+  it("blocks cross-provider webhook name collisions", async () => {
+    const { datadog, rootly, provider } = fixture({
+      monitors: [{ id: 7, message: "@pagerduty-API @opsgenie-API" }],
+      providerServices: [{ id: "pd-1", name: "API" }],
+      rootlyServices: [
+        { id: "rootly-1", attributes: { pagerduty_id: "pd-1" } },
+        { id: "rootly-2", attributes: { opsgenie_id: "og-1" } },
+      ],
+    });
+    const opsgenie: ProviderAdapter = {
+      id: "opsgenie",
+      displayName: "Opsgenie",
+      notificationPrefix: "@opsgenie-",
+      rootlyAttribute: "opsgenie_id",
+      tokenEnvironmentVariable: "OPSGENIE_API_TOKEN",
+      listServices: vi.fn(async () =>
+        Promise.resolve([{ id: "og-1", name: "API" }]),
+      ),
+    };
+    const engine = new MigrationEngine(datadog, rootly, [
+      { adapter: provider, token: "pd-token" },
+      { adapter: opsgenie, token: "og-token" },
+    ]);
+
+    expect((await engine.plan()).issues).toContainEqual(
+      expect.objectContaining({ code: "webhook-name-collision" }),
+    );
   });
 });
 
