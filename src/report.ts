@@ -36,7 +36,7 @@ export async function writeReports(
 
 function sanitizedPlan(plan: MigrationPlan): object {
   return {
-    providers: plan.providers,
+    provider: plan.provider,
     monitorCount: plan.monitorCount,
     scannedNotificationCount: plan.scannedNotificationCount,
     webhooks: plan.webhooks.map(({ name, serviceName }) => ({

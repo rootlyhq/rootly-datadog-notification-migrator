@@ -54,7 +54,6 @@ function fixture(
     displayName: "PagerDuty",
     notificationPrefix: "@pagerduty-",
     rootlyAttribute: "pagerduty_id",
-    tokenEnvironmentVariable: "PAGERDUTY_API_TOKEN",
     validateCredentials: vi.fn(async () => Promise.resolve()),
     listServices: vi.fn(async () => Promise.resolve(providerServices)),
   };
@@ -63,9 +62,10 @@ function fixture(
     datadog,
     rootly,
     provider,
-    engine: new MigrationEngine(datadog, rootly, [
-      { adapter: provider, token: "token" },
-    ]),
+    engine: new MigrationEngine(datadog, rootly, {
+      adapter: provider,
+      token: "token",
+    }),
   };
 }
 
@@ -190,76 +190,55 @@ describe("MigrationEngine.plan", () => {
     await expect(engine.plan()).rejects.toThrow("Datadog unavailable");
   });
 
-  it("plans PagerDuty and Opsgenie changes in one monitor update", async () => {
-    const { datadog, rootly, provider } = fixture({
+  it("does not confuse notification names that are prefixes of each other", async () => {
+    const { engine } = fixture({
       monitors: [
         {
           id: 7,
-          message: "@pagerduty-Production @opsgenie-Payments",
+          message: "@pagerduty-API @pagerduty-API-v2",
         },
       ],
-      providerServices: [{ id: "pd-1", name: "Production" }],
+      providerServices: [
+        { id: "pd-1", name: "API" },
+        { id: "pd-2", name: "API-v2" },
+      ],
       rootlyServices: [
         { id: "rootly-1", attributes: { pagerduty_id: "pd-1" } },
-        { id: "rootly-2", attributes: { opsgenie_id: "og-1" } },
+        { id: "rootly-2", attributes: { pagerduty_id: "pd-2" } },
       ],
     });
-    const opsgenie: ProviderAdapter = {
-      id: "opsgenie",
-      displayName: "Opsgenie",
-      notificationPrefix: "@opsgenie-",
-      rootlyAttribute: "opsgenie_id",
-      tokenEnvironmentVariable: "OPSGENIE_API_TOKEN",
-      validateCredentials: vi.fn(async () => Promise.resolve()),
-      listServices: vi.fn(async () =>
-        Promise.resolve([{ id: "og-1", name: "Payments" }]),
-      ),
-    };
-    const engine = new MigrationEngine(datadog, rootly, [
-      { adapter: provider, token: "pd-token" },
-      { adapter: opsgenie, token: "og-token" },
-    ]);
 
     const plan = await engine.plan();
 
-    expect(plan.providers).toEqual(["pagerduty", "opsgenie"]);
+    expect(plan.provider).toBe("pagerduty");
     expect(plan.scannedNotificationCount).toBe(2);
     expect(plan.updates).toHaveLength(1);
-    expect(plan.updates[0]?.newMessage).toContain(
-      "@pagerduty-Production @webhook-rootly-production",
+    expect(plan.updates[0]?.newMessage).toBe(
+      "@pagerduty-API @webhook-rootly-api " +
+        "@pagerduty-API-v2 @webhook-rootly-api-v2",
     );
-    expect(plan.updates[0]?.newMessage).toContain(
-      "@opsgenie-Payments @webhook-rootly-payments",
-    );
+    expect(plan.updates[0]?.webhookNames).toEqual([
+      "rootly-api",
+      "rootly-api-v2",
+    ]);
   });
 
-  it("blocks cross-provider webhook name collisions", async () => {
-    const { datadog, rootly, provider } = fixture({
-      monitors: [{ id: 7, message: "@pagerduty-API @opsgenie-API" }],
+  it("requires an exact existing webhook notification for idempotency", async () => {
+    const { engine } = fixture({
+      monitors: [
+        {
+          id: 7,
+          message: "@pagerduty-API @webhook-rootly-api-v2",
+        },
+      ],
       providerServices: [{ id: "pd-1", name: "API" }],
       rootlyServices: [
         { id: "rootly-1", attributes: { pagerduty_id: "pd-1" } },
-        { id: "rootly-2", attributes: { opsgenie_id: "og-1" } },
       ],
     });
-    const opsgenie: ProviderAdapter = {
-      id: "opsgenie",
-      displayName: "Opsgenie",
-      notificationPrefix: "@opsgenie-",
-      rootlyAttribute: "opsgenie_id",
-      tokenEnvironmentVariable: "OPSGENIE_API_TOKEN",
-      validateCredentials: vi.fn(async () => Promise.resolve()),
-      listServices: vi.fn(async () =>
-        Promise.resolve([{ id: "og-1", name: "API" }]),
-      ),
-    };
-    const engine = new MigrationEngine(datadog, rootly, [
-      { adapter: provider, token: "pd-token" },
-      { adapter: opsgenie, token: "og-token" },
-    ]);
 
-    expect((await engine.plan()).issues).toContainEqual(
-      expect.objectContaining({ code: "webhook-name-collision" }),
+    expect((await engine.plan()).updates[0]?.newMessage).toBe(
+      "@pagerduty-API @webhook-rootly-api @webhook-rootly-api-v2",
     );
   });
 });

@@ -56,75 +56,89 @@ beforeEach(() => {
 });
 
 describe("API contracts", () => {
-  it("plans and applies both providers through their HTTP boundaries", async () => {
-    const http = new HttpClient({ maxGetAttempts: 1 });
-    const datadog = new DatadogClient(
-      http,
-      `${baseUrl}/datadog`,
-      "dd-api",
-      "dd-app",
-      "rootly-secret",
-    );
-    const rootly = new RootlyClient(http, `${baseUrl}/rootly`, "rootly-token");
-    const engine = new MigrationEngine(datadog, rootly, [
-      {
-        adapter: createPagerDutyProvider(http, `${baseUrl}/pagerduty`),
-        token: "pd-token",
-      },
-      {
-        adapter: createOpsgenieProvider(http, `${baseUrl}/opsgenie`),
-        token: "og-token",
-      },
-    ]);
+  it.each([
+    {
+      name: "PagerDuty",
+      notification: "@pagerduty-API",
+      webhook: "rootly-api",
+      token: "pd-token",
+      providerPath: "/pagerduty/services?limit=100&offset=0",
+      authorization: "Token token=pd-token",
+      createAdapter: (http: HttpClient) =>
+        createPagerDutyProvider(http, `${baseUrl}/pagerduty`),
+    },
+    {
+      name: "Opsgenie",
+      notification: "@opsgenie-Checkout",
+      webhook: "rootly-checkout",
+      token: "og-token",
+      providerPath: "/opsgenie/v1/services?limit=100&offset=0",
+      authorization: "GenieKey og-token",
+      createAdapter: (http: HttpClient) =>
+        createOpsgenieProvider(http, `${baseUrl}/opsgenie`),
+    },
+  ])(
+    "plans and applies $name through its HTTP boundaries",
+    async (provider) => {
+      currentMonitor = { ...defaultMonitor, message: provider.notification };
+      updatedMessage = currentMonitor.message;
+      const http = new HttpClient({ maxGetAttempts: 1 });
+      const datadog = new DatadogClient(
+        http,
+        `${baseUrl}/datadog`,
+        "dd-api",
+        "dd-app",
+        "rootly-secret",
+      );
+      const rootly = new RootlyClient(
+        http,
+        `${baseUrl}/rootly`,
+        "rootly-token",
+      );
+      const engine = new MigrationEngine(datadog, rootly, {
+        adapter: provider.createAdapter(http),
+        token: provider.token,
+      });
 
-    const plan = await engine.plan();
-    expect(plan.issues).toEqual([]);
-    expect(plan.updates).toHaveLength(1);
-    expect(plan.webhooks.map(({ name }) => name)).toEqual([
-      "rootly-api",
-      "rootly-checkout",
-    ]);
+      const plan = await engine.plan();
+      expect(plan.issues).toEqual([]);
+      expect(plan.updates).toHaveLength(1);
+      expect(plan.webhooks.map(({ name }) => name)).toEqual([provider.webhook]);
 
-    const result = await engine.execute(plan);
-    expect(result.errors).toEqual([]);
-    expect(result.appliedMonitorIds).toEqual([17]);
-    expect(updatedMessage).toContain("@webhook-rootly-api");
-    expect(updatedMessage).toContain("@webhook-rootly-checkout");
-    expect(webhooks).toHaveLength(2);
-    expect(requests).toContainEqual(
-      expect.objectContaining({
-        path: "/pagerduty/services?limit=100&offset=0",
-        authorization: "Token token=pd-token",
-      }),
-    );
-    expect(requests).toContainEqual(
-      expect.objectContaining({
-        path: "/opsgenie/v1/services?limit=100&offset=0",
-        authorization: "GenieKey og-token",
-      }),
-    );
+      const result = await engine.execute(plan);
+      expect(result.errors).toEqual([]);
+      expect(result.appliedMonitorIds).toEqual([17]);
+      expect(updatedMessage).toContain(`@webhook-${provider.webhook}`);
+      expect(webhooks).toHaveLength(1);
+      expect(requests).toContainEqual(
+        expect.objectContaining({
+          path: provider.providerPath,
+          authorization: provider.authorization,
+        }),
+      );
 
-    const secondPlan = await engine.plan();
-    expect(secondPlan.issues).toEqual([]);
-    expect(secondPlan.updates).toEqual([]);
-
-    const secondResult = await engine.execute(secondPlan);
-    expect(secondResult.errors).toEqual([]);
-    expect(secondResult.appliedMonitorIds).toEqual([]);
-    expect(
-      requests.filter(
-        ({ method, path }) =>
-          method === "POST" &&
-          path === "/datadog/integration/webhooks/configuration/webhooks",
-      ),
-    ).toHaveLength(2);
-    expect(
-      requests.filter(
-        ({ method, path }) =>
-          method === "PUT" && path === "/datadog/monitor/17",
-      ),
-    ).toHaveLength(1);
-  });
+      const secondPlan = await engine.plan();
+      expect(secondPlan.issues).toEqual([]);
+      expect(secondPlan.updates).toEqual([]);
+      expect(await engine.execute(secondPlan)).toMatchObject({
+        errors: [],
+        appliedMonitorIds: [],
+      });
+      expect(
+        requests.filter(
+          ({ method, path }) =>
+            method === "POST" &&
+            path === "/datadog/integration/webhooks/configuration/webhooks",
+        ),
+      ).toHaveLength(1);
+      expect(
+        requests.filter(
+          ({ method, path }) =>
+            method === "PUT" && path === "/datadog/monitor/17",
+        ),
+      ).toHaveLength(1);
+    },
+  );
 
   it("updates a synthetic monitor through the synthetics API", async () => {
     currentMonitor = {
@@ -145,12 +159,10 @@ describe("API contracts", () => {
         "rootly-secret",
       ),
       new RootlyClient(http, `${baseUrl}/rootly`, "rootly-token"),
-      [
-        {
-          adapter: createPagerDutyProvider(http, `${baseUrl}/pagerduty`),
-          token: "pd-token",
-        },
-      ],
+      {
+        adapter: createPagerDutyProvider(http, `${baseUrl}/pagerduty`),
+        token: "pd-token",
+      },
     );
 
     const result = await engine.execute(await engine.plan());

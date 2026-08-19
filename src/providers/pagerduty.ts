@@ -24,7 +24,6 @@ export function createPagerDutyProvider(
     displayName: "PagerDuty",
     notificationPrefix: "@pagerduty-",
     rootlyAttribute: "pagerduty_id",
-    tokenEnvironmentVariable: "PAGERDUTY_API_TOKEN",
     async validateCredentials(token: string): Promise<void> {
       await fetchPage(token, 1, 0);
     },

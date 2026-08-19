@@ -28,7 +28,6 @@ export function createOpsgenieProvider(
     displayName: "Opsgenie",
     notificationPrefix: "@opsgenie-",
     rootlyAttribute: "opsgenie_id",
-    tokenEnvironmentVariable: "OPSGENIE_API_TOKEN",
     async validateCredentials(token: string): Promise<void> {
       await fetchPage(token, 1, 0);
     },

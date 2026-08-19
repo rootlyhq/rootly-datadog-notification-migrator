@@ -14,7 +14,8 @@ or deleted.
 
 ## Prepare a release
 
-1. Update `version` in `package.json` and `VERSION` in `src/cli.ts` together.
+1. Update `version` in `package.json`; the CLI reads it directly from the package
+   metadata.
 2. Merge the version change into `master` after CI, CodeQL, and dependency
    review pass.
 3. Create and push a signed tag from that exact `master` commit:
