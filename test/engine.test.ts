@@ -295,6 +295,38 @@ describe("MigrationEngine.execute", () => {
     expect(datadog.updateMonitor).not.toHaveBeenCalled();
   });
 
+  it("continues independent updates after a partial webhook failure", async () => {
+    const { engine, datadog } = fixture({
+      monitors: [
+        { id: 41, message: "@pagerduty-Production" },
+        { id: 42, message: "@pagerduty-Existing" },
+      ],
+    });
+    vi.mocked(datadog.ensureWebhook).mockRejectedValueOnce(
+      new Error("webhook API unavailable"),
+    );
+
+    const result = await engine.execute(await engine.plan());
+
+    expect(result.createdOrVerifiedWebhooks).toEqual(["rootly-existing"]);
+    expect(result.appliedMonitorIds).toEqual([42]);
+    expect(result.errors).toEqual([
+      {
+        operation: "webhook:rootly-production",
+        message: "webhook API unavailable",
+      },
+      {
+        operation: "monitor:41",
+        message: "Skipped because webhook rootly-production is not ready",
+      },
+    ]);
+    expect(datadog.updateMonitor).toHaveBeenCalledOnce();
+    expect(datadog.updateMonitor).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 42 }),
+      "@pagerduty-Existing @webhook-rootly-existing",
+    );
+  });
+
   it("does not overwrite a monitor changed after preview", async () => {
     const { engine, datadog } = fixture({
       monitors: [{ id: 42, message: "@pagerduty-Production" }],

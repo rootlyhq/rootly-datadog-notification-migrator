@@ -1,0 +1,84 @@
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+change-template: "- $TITLE (#$NUMBER) $AUTHORS"
+change-title-escapes: "\\<*_&"
+sort-by: merged_at
+sort-direction: ascending
+
+categories:
+  - title: Breaking changes
+    semver-increment: major
+    exclusive: true
+    when:
+      label: release:major
+  - title: Features
+    semver-increment: minor
+    exclusive: true
+    when:
+      label: enhancement
+  - title: Security
+    semver-increment: patch
+    exclusive: true
+    when:
+      label: security
+  - title: Bug fixes
+    semver-increment: patch
+    exclusive: true
+    when:
+      label: bug
+  - title: Documentation
+    semver-increment: patch
+    exclusive: true
+    when:
+      label: documentation
+  - title: Dependency updates
+    semver-increment: patch
+    exclusive: true
+    when:
+      label: dependencies
+  - title: Continuous integration
+    semver-increment: patch
+    exclusive: true
+    when:
+      label: ci
+  - title: Other changes
+  - type: pre-exclude
+    when:
+      label: skip-changelog
+  - type: version-resolver
+    semver-increment: patch
+
+autolabeler:
+  - label: enhancement
+    branch:
+      - "/^(?:features?|feat)\\/.+/i"
+    title:
+      - "/^feat(?:\\(.+\\))?!?:/i"
+  - label: bug
+    branch:
+      - "/^(?:fix|bugfix)\\/.+/i"
+    title:
+      - "/^fix(?:\\(.+\\))?!?:/i"
+  - label: documentation
+    files:
+      - "**/*.md"
+      - "docs/**"
+  - label: dependencies
+    files:
+      - "package.json"
+      - "yarn.lock"
+      - ".yarn/**"
+  - label: ci
+    files:
+      - ".github/**"
+
+template: |
+  ## What's changed
+
+  $CHANGES
+
+  ## New contributors
+
+  $NEW_CONTRIBUTORS
+
+  **Full changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
