@@ -6,7 +6,7 @@ import {
   type ConnectionValidator,
   type PromptAdapter,
 } from "../src/config.js";
-import type { ProviderSelection } from "../src/types.js";
+import type { ProviderId } from "../src/types.js";
 
 const baseOptions = {
   apply: false,
@@ -63,25 +63,23 @@ describe("collectConfig", () => {
       false,
     );
 
-    expect(config.providers).toEqual([
-      {
-        id: "pagerduty",
-        token: "pd",
-        apiUrl: "https://api.pagerduty.com",
-      },
-    ]);
+    expect(config.provider).toEqual({
+      id: "pagerduty",
+      token: "pd",
+      apiUrl: "https://api.pagerduty.com",
+    });
   });
 
   it("prompts sequentially for missing credentials", async () => {
     const prompts: PromptAdapter = {
-      selectProvider: vi.fn(async (): Promise<ProviderSelection> =>
+      selectProvider: vi.fn(async (): Promise<ProviderId> =>
         Promise.resolve("opsgenie"),
       ),
       secret: vi.fn(async (label: string) => Promise.resolve(`value:${label}`)),
     };
     const config = await collectConfig(baseOptions, {}, true, prompts);
 
-    expect(config.providers[0]?.id).toBe("opsgenie");
+    expect(config.provider.id).toBe("opsgenie");
     expect(prompts.secret).toHaveBeenCalledTimes(5);
     expect(config.datadogApiKey).toBe(
       "value:Datadog API key (DATADOG_API_KEY)",
@@ -90,7 +88,7 @@ describe("collectConfig", () => {
 
   it("presents guided sections and identifies credentials loaded from the environment", async () => {
     const prompts: PromptAdapter = {
-      selectProvider: vi.fn(async (): Promise<ProviderSelection> =>
+      selectProvider: vi.fn(async (): Promise<ProviderId> =>
         Promise.resolve("pagerduty"),
       ),
       secret: vi.fn(async () => Promise.resolve("unused")),
@@ -149,7 +147,7 @@ describe("collectConfig", () => {
 
   it("stops before Rootly when Datadog credentials fail validation", async () => {
     const prompts: PromptAdapter = {
-      selectProvider: vi.fn(async (): Promise<ProviderSelection> =>
+      selectProvider: vi.fn(async (): Promise<ProviderId> =>
         Promise.resolve("pagerduty"),
       ),
       secret: vi.fn(async () => Promise.resolve("unused")),

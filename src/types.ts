@@ -1,7 +1,6 @@
 export const PROVIDER_IDS = ["pagerduty", "opsgenie"] as const;
 
 export type ProviderId = (typeof PROVIDER_IDS)[number];
-export type ProviderSelection = ProviderId;
 
 export interface ProviderService {
   id: string;
@@ -35,7 +34,6 @@ export interface ProviderAdapter {
   displayName: string;
   notificationPrefix: string;
   rootlyAttribute: string;
-  tokenEnvironmentVariable: string;
   validateCredentials(token: string): Promise<void>;
   listServices(token: string): Promise<ProviderService[]>;
 }
@@ -47,11 +45,11 @@ export interface MigrationConfig {
   rootlyAlertSourceSecret: string;
   datadogApiUrl: string;
   rootlyApiUrl: string;
-  providers: {
+  provider: {
     id: ProviderId;
     token: string;
     apiUrl: string;
-  }[];
+  };
 }
 
 export interface PlannedWebhook {
@@ -83,7 +81,7 @@ export interface MigrationIssue {
 }
 
 export interface MigrationPlan {
-  providers: ProviderId[];
+  provider: ProviderId;
   monitorCount: number;
   scannedNotificationCount: number;
   webhooks: PlannedWebhook[];

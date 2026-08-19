@@ -3,6 +3,7 @@
 import { confirm } from "@inquirer/prompts";
 import { existsSync } from "node:fs";
 import { loadEnvFile } from "node:process";
+import packageJson from "../package.json" with { type: "json" };
 
 import { DatadogClient } from "./clients/datadog.js";
 import { RootlyClient } from "./clients/rootly.js";
@@ -15,7 +16,7 @@ import { createProvider } from "./providers/index.js";
 import { writeReports } from "./report.js";
 import type { ExecutionResult, MigrationPlan } from "./types.js";
 
-const VERSION = "0.2.0";
+const VERSION = packageJson.version;
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const options = parseCliOptions(argv);
@@ -77,14 +78,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     config.rootlyApiUrl,
     config.rootlyApiToken,
   );
-  const providers = config.providers.map(({ id, token, apiUrl }) => ({
-    adapter: createProvider(id, http, apiUrl),
-    token,
-  }));
-  const engine = new MigrationEngine(datadog, rootly, providers);
+  const provider = {
+    adapter: createProvider(config.provider.id, http, config.provider.apiUrl),
+    token: config.provider.token,
+  };
+  const engine = new MigrationEngine(datadog, rootly, provider);
 
   console.log(
-    `Inspecting Datadog, Rootly, and ${providers.map(({ adapter }) => adapter.displayName).join(" and ")}...`,
+    `Inspecting Datadog, Rootly, and ${provider.adapter.displayName}...`,
   );
   const plan = await engine.plan();
   printPlan(plan);
@@ -103,13 +104,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return 0;
   }
 
-  const apply =
-    options.apply ||
-    (interactive &&
-      (await confirm({
-        message: `Apply ${plan.updates.length} monitor update(s)?`,
-        default: false,
-      })));
+  const apply = await shouldApply(options.apply, interactive, () =>
+    confirm({
+      message: `Apply ${plan.updates.length} monitor update(s)?`,
+      default: false,
+    }),
+  );
 
   if (!apply) {
     const paths = await writeReports(plan, undefined, options.outputPrefix);
@@ -125,6 +125,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const paths = await writeReports(plan, execution, options.outputPrefix);
   console.log(`Reports: ${paths.csv} and ${paths.json}`);
   return execution.errors.length === 0 ? 0 : 1;
+}
+
+export async function shouldApply(
+  applyRequested: boolean,
+  interactive: boolean,
+  confirmApply: () => Promise<boolean>,
+): Promise<boolean> {
+  return interactive ? confirmApply() : applyRequested;
 }
 
 function printPlan(plan: MigrationPlan): void {

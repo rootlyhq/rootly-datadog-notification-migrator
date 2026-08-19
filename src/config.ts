@@ -3,14 +3,10 @@ import { parseArgs } from "node:util";
 
 import { errorMessage } from "./errors.js";
 import { PROVIDER_IDS } from "./types.js";
-import type {
-  MigrationConfig,
-  ProviderId,
-  ProviderSelection,
-} from "./types.js";
+import type { MigrationConfig, ProviderId } from "./types.js";
 
 export interface CliOptions {
-  provider?: ProviderSelection;
+  provider?: ProviderId;
   apply: boolean;
   nonInteractive: boolean;
   outputPrefix?: string;
@@ -19,7 +15,7 @@ export interface CliOptions {
 }
 
 export interface PromptAdapter {
-  selectProvider(): Promise<ProviderSelection>;
+  selectProvider(): Promise<ProviderId>;
   secret(message: string): Promise<string>;
   section?(title: string, description: string): void;
   credentialLoaded?(label: string, variable: string): void;
@@ -43,7 +39,7 @@ export interface ConnectionValidator {
 
 const defaultPrompts: PromptAdapter = {
   async selectProvider() {
-    return select<ProviderSelection>({
+    return select<ProviderId>({
       message: "Which provider notifications should be migrated?",
       choices: [
         {
@@ -96,7 +92,7 @@ export function parseCliOptions(argv: string[]): CliOptions {
   if (providerValue && !isProviderSelection(providerValue)) {
     throw new Error(`Unsupported provider: ${providerValue}`);
   }
-  const provider = providerValue as ProviderSelection | undefined;
+  const provider = providerValue as ProviderId | undefined;
 
   return {
     ...(provider ? { provider } : {}),
@@ -126,8 +122,7 @@ export async function collectConfig(
   const selection =
     options.provider ??
     (interactive ? await prompts.selectProvider() : missingProvider());
-  const providerIds: ProviderId[] = [selection];
-  const totalSteps = 3 + providerIds.length;
+  const selectedProvider = providerInfo(selection);
   const datadogApiUrl = validUrl(
     environment.DATADOG_API_URL ?? "https://api.datadoghq.com/api/v1",
     "DATADOG_API_URL",
@@ -140,7 +135,7 @@ export async function collectConfig(
   const credentials: Record<string, string> = {};
   if (interactive) {
     prompts.section?.(
-      `Step 2 of ${totalSteps} — Datadog`,
+      "Step 2 of 4 — Datadog",
       "Connect to the Datadog account containing the monitors. Keys are masked and remain in memory.",
     );
   }
@@ -173,7 +168,7 @@ export async function collectConfig(
 
   if (interactive) {
     prompts.section?.(
-      `Step 3 of ${totalSteps} — Rootly`,
+      "Step 3 of 4 — Rootly",
       "Connect to Rootly and authenticate the Datadog alert-source webhooks that will be created.",
     );
   }
@@ -203,42 +198,37 @@ export async function collectConfig(
       : undefined,
   );
 
-  const providers = [];
-  for (const [index, provider] of providerIds.entries()) {
-    const tokenVariable = tokenEnvironmentVariable(provider);
-    if (interactive) {
-      prompts.section?.(
-        `Step ${index + 4} of ${totalSteps} — ${providerLabel(provider)}`,
-        `Connect to ${providerLabel(provider)} so its services can be matched to Rootly.`,
-      );
-    }
-    const token = await credential(
-      tokenVariable,
-      `${providerLabel(provider)} API token`,
-      environment,
-      interactive,
-      prompts,
+  if (interactive) {
+    prompts.section?.(
+      `Step 4 of 4 — ${selectedProvider.label}`,
+      `Connect to ${selectedProvider.label} so its services can be matched to Rootly.`,
     );
-    const apiUrl = validUrl(
-      provider === "pagerduty"
-        ? (environment.PAGERDUTY_API_URL ?? "https://api.pagerduty.com")
-        : (environment.OPSGENIE_API_URL ?? "https://api.opsgenie.com"),
-      provider === "pagerduty" ? "PAGERDUTY_API_URL" : "OPSGENIE_API_URL",
-    );
-    await validateCheckpoint(
-      `${providerLabel(provider)} API token`,
-      interactive,
-      prompts,
-      validator
-        ? () => validator.validateProvider({ id: provider, apiUrl, token })
-        : undefined,
-    );
-    providers.push({
-      id: provider,
-      token,
-      apiUrl,
-    });
   }
+  const providerToken = await credential(
+    selectedProvider.tokenVariable,
+    `${selectedProvider.label} API token`,
+    environment,
+    interactive,
+    prompts,
+  );
+  const providerApiUrl = validUrl(
+    environment[selectedProvider.apiUrlVariable] ??
+      selectedProvider.defaultApiUrl,
+    selectedProvider.apiUrlVariable,
+  );
+  await validateCheckpoint(
+    `${selectedProvider.label} API token`,
+    interactive,
+    prompts,
+    validator
+      ? () =>
+          validator.validateProvider({
+            id: selection,
+            apiUrl: providerApiUrl,
+            token: providerToken,
+          })
+      : undefined,
+  );
 
   return {
     datadogApiKey: credentials.DATADOG_API_KEY ?? "",
@@ -247,7 +237,11 @@ export async function collectConfig(
     rootlyAlertSourceSecret: credentials.ROOTLY_ALERT_SOURCE_SECRET ?? "",
     datadogApiUrl,
     rootlyApiUrl,
-    providers,
+    provider: {
+      id: selection,
+      token: providerToken,
+      apiUrl: providerApiUrl,
+    },
   };
 }
 
@@ -305,7 +299,7 @@ function validUrl(value: string, variable: string): string {
   }
 }
 
-function isProviderSelection(value: string): value is ProviderSelection {
+function isProviderSelection(value: string): value is ProviderId {
   return PROVIDER_IDS.some((provider) => provider === value);
 }
 
@@ -313,12 +307,23 @@ function missingProvider(): never {
   throw new Error("Missing --from pagerduty|opsgenie in non-interactive mode");
 }
 
-function providerLabel(provider: ProviderId): string {
-  return provider === "pagerduty" ? "PagerDuty" : "Opsgenie";
-}
-
-function tokenEnvironmentVariable(provider: ProviderId): string {
+function providerInfo(provider: ProviderId): {
+  label: string;
+  tokenVariable: string;
+  apiUrlVariable: string;
+  defaultApiUrl: string;
+} {
   return provider === "pagerduty"
-    ? "PAGERDUTY_API_TOKEN"
-    : "OPSGENIE_API_TOKEN";
+    ? {
+        label: "PagerDuty",
+        tokenVariable: "PAGERDUTY_API_TOKEN",
+        apiUrlVariable: "PAGERDUTY_API_URL",
+        defaultApiUrl: "https://api.pagerduty.com",
+      }
+    : {
+        label: "Opsgenie",
+        tokenVariable: "OPSGENIE_API_TOKEN",
+        apiUrlVariable: "OPSGENIE_API_URL",
+        defaultApiUrl: "https://api.opsgenie.com",
+      };
 }

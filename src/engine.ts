@@ -32,147 +32,128 @@ export interface ConfiguredProvider {
 export class MigrationEngine {
   readonly #datadog: DatadogOperations;
   readonly #rootly: RootlyOperations;
-  readonly #providers: ConfiguredProvider[];
+  readonly #provider: ConfiguredProvider;
 
   constructor(
     datadog: DatadogOperations,
     rootly: RootlyOperations,
-    providers: ConfiguredProvider[],
+    provider: ConfiguredProvider,
   ) {
     this.#datadog = datadog;
     this.#rootly = rootly;
-    if (providers.length === 0) {
-      throw new Error("At least one notification provider is required");
-    }
-    this.#providers = providers;
+    this.#provider = provider;
   }
 
   async plan(): Promise<MigrationPlan> {
-    const [monitors, rootlyServices, ...providerServiceLists] =
-      await Promise.all([
-        this.#datadog.listMonitors(),
-        this.#rootly.listServices(),
-        ...this.#providers.map(({ adapter, token }) =>
-          adapter.listServices(token),
-        ),
-      ]);
-    const providerContexts = this.#providers.map(({ adapter }, index) => ({
-      adapter,
-      providerIndex: indexProviderServices(providerServiceLists[index] ?? []),
-      rootlyIndex: indexRootlyServices(rootlyServices, adapter.rootlyAttribute),
-      notificationPattern: new RegExp(
-        `${escapeRegExp(adapter.notificationPrefix)}([^\\s]+)`,
-        "g",
-      ),
-    }));
+    const { adapter, token } = this.#provider;
+    const [monitors, rootlyServices, providerServices] = await Promise.all([
+      this.#datadog.listMonitors(),
+      this.#rootly.listServices(),
+      adapter.listServices(token),
+    ]);
+    const providerIndex = indexProviderServices(providerServices);
+    const rootlyIndex = indexRootlyServices(
+      rootlyServices,
+      adapter.rootlyAttribute,
+    );
+    const notificationPattern = new RegExp(
+      `${escapeRegExp(adapter.notificationPrefix)}([^\\s]+)`,
+      "g",
+    );
     const webhooks = new Map<string, PlannedWebhook>();
     const updates: PlannedMonitorUpdate[] = [];
     const issues: MigrationIssue[] = [];
     let scannedNotificationCount = 0;
 
     for (const monitor of monitors) {
-      let newMessage = monitor.message;
       const resolvedNotifications: string[] = [];
       const webhookNames: string[] = [];
+      const replacements = new Map<string, string>();
+      const existingNotifications = new Set(
+        monitor.message.match(/@webhook-[^\s]+/g) ?? [],
+      );
+      const notifications = [
+        ...new Set(monitor.message.match(notificationPattern) ?? []),
+      ];
+      scannedNotificationCount += notifications.length;
 
-      for (const context of providerContexts) {
-        const { adapter, providerIndex, rootlyIndex, notificationPattern } =
-          context;
-        const notifications = [
-          ...new Set(monitor.message.match(notificationPattern) ?? []),
-        ];
-        scannedNotificationCount += notifications.length;
+      for (const notification of notifications) {
+        const serviceName = notification.slice(
+          adapter.notificationPrefix.length,
+        );
+        const normalizedName = normalizeServiceName(serviceName);
+        const providerMatches = providerIndex.get(normalizedName) ?? [];
 
-        for (const notification of notifications) {
-          const serviceName = notification.slice(
-            adapter.notificationPrefix.length,
-          );
-          const normalizedName = normalizeServiceName(serviceName);
-          const providerMatches = providerIndex.get(normalizedName) ?? [];
-
-          if (providerMatches.length === 0) {
-            issues.push({
-              code: "missing-provider-service",
-              message: `${adapter.displayName} service not found for ${notification}`,
-              monitorId: monitor.id,
-              notification,
-            });
-            continue;
-          }
-          if (providerMatches.length > 1) {
-            issues.push({
-              code: "ambiguous-provider-service",
-              message: `${notification} matches multiple ${adapter.displayName} services`,
-              monitorId: monitor.id,
-              notification,
-            });
-            continue;
-          }
-
-          const providerService = providerMatches[0];
-          if (!providerService) {
-            continue;
-          }
-          const rootlyMatches = rootlyIndex.get(providerService.id) ?? [];
-
-          if (rootlyMatches.length === 0) {
-            issues.push({
-              code: "missing-rootly-service",
-              message: `No Rootly service is linked to ${adapter.displayName} service ${providerService.name}`,
-              monitorId: monitor.id,
-              notification,
-            });
-            continue;
-          }
-          if (rootlyMatches.length > 1) {
-            issues.push({
-              code: "ambiguous-rootly-service",
-              message: `Multiple Rootly services are linked to ${adapter.displayName} service ${providerService.name}`,
-              monitorId: monitor.id,
-              notification,
-            });
-            continue;
-          }
-
-          const rootlyService = rootlyMatches[0];
-          if (!rootlyService) {
-            continue;
-          }
-          const webhookName = `rootly-${normalizedName}`;
-          const newNotification = `@webhook-${webhookName}`;
-
-          const existingPlan = webhooks.get(webhookName);
-          if (
-            existingPlan &&
-            existingPlan.rootlyServiceId !== rootlyService.id
-          ) {
-            issues.push({
-              code: "webhook-name-collision",
-              message: `Webhook ${webhookName} resolves to multiple Rootly services`,
-              monitorId: monitor.id,
-              notification,
-            });
-            continue;
-          }
-
-          webhooks.set(webhookName, {
-            name: webhookName,
-            serviceName: providerService.name,
-            rootlyServiceId: rootlyService.id,
-          });
-
-          if (newMessage.includes(newNotification)) {
-            continue;
-          }
-
-          newMessage = newMessage.replaceAll(
+        if (providerMatches.length === 0) {
+          issues.push({
+            code: "missing-provider-service",
+            message: `${adapter.displayName} service not found for ${notification}`,
+            monitorId: monitor.id,
             notification,
-            `${notification} ${newNotification}`,
-          );
-          resolvedNotifications.push(notification);
-          webhookNames.push(webhookName);
+          });
+          continue;
         }
+        if (providerMatches.length > 1) {
+          issues.push({
+            code: "ambiguous-provider-service",
+            message: `${notification} matches multiple ${adapter.displayName} services`,
+            monitorId: monitor.id,
+            notification,
+          });
+          continue;
+        }
+
+        const providerService = providerMatches[0];
+        if (!providerService) {
+          continue;
+        }
+        const rootlyMatches = rootlyIndex.get(providerService.id) ?? [];
+
+        if (rootlyMatches.length === 0) {
+          issues.push({
+            code: "missing-rootly-service",
+            message: `No Rootly service is linked to ${adapter.displayName} service ${providerService.name}`,
+            monitorId: monitor.id,
+            notification,
+          });
+          continue;
+        }
+        if (rootlyMatches.length > 1) {
+          issues.push({
+            code: "ambiguous-rootly-service",
+            message: `Multiple Rootly services are linked to ${adapter.displayName} service ${providerService.name}`,
+            monitorId: monitor.id,
+            notification,
+          });
+          continue;
+        }
+
+        const rootlyService = rootlyMatches[0];
+        if (!rootlyService) {
+          continue;
+        }
+        const webhookName = `rootly-${normalizedName}`;
+        const newNotification = `@webhook-${webhookName}`;
+
+        webhooks.set(webhookName, {
+          name: webhookName,
+          serviceName: providerService.name,
+          rootlyServiceId: rootlyService.id,
+        });
+
+        if (existingNotifications.has(newNotification)) {
+          continue;
+        }
+
+        replacements.set(notification, `${notification} ${newNotification}`);
+        resolvedNotifications.push(notification);
+        webhookNames.push(webhookName);
       }
+
+      const newMessage = monitor.message.replace(
+        notificationPattern,
+        (notification) => replacements.get(notification) ?? notification,
+      );
 
       if (newMessage !== monitor.message) {
         updates.push({
@@ -200,7 +181,7 @@ export class MigrationEngine {
     }
 
     return {
-      providers: this.#providers.map(({ adapter }) => adapter.id),
+      provider: adapter.id,
       monitorCount: monitors.length,
       scannedNotificationCount,
       webhooks: [...webhooks.values()],
