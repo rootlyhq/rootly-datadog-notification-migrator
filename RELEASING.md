@@ -22,8 +22,8 @@ or deleted.
    ```bash
    git switch master
    git pull --ff-only
-   git tag -s v0.1.0 -m "v0.1.0"
-   git push origin v0.1.0
+   git tag -s v0.2.0 -m "v0.2.0"
+   git push origin v0.2.0
    ```
 
 The workflow rejects a tag whose name differs from the package version or whose
@@ -35,9 +35,9 @@ package and container jobs succeed.
 Download and verify the tarball:
 
 ```bash
-gh release download v0.1.0 --repo rootlyhq/rootly-datadog-notification-migrator
+gh release download v0.2.0 --repo rootlyhq/rootly-datadog-notification-migrator
 sha256sum --check SHA256SUMS
-gh attestation verify rootly-datadog-notification-migrator-0.1.0.tgz \
+gh attestation verify rootly-datadog-notification-migrator-0.2.0.tgz \
   --repo rootlyhq/rootly-datadog-notification-migrator
 ```
 
@@ -45,7 +45,7 @@ Verify the container provenance:
 
 ```bash
 gh attestation verify \
-  oci://ghcr.io/rootlyhq/rootly-datadog-notification-migrator:0.1.0 \
+  oci://ghcr.io/rootlyhq/rootly-datadog-notification-migrator:0.2.0 \
   --repo rootlyhq/rootly-datadog-notification-migrator
 ```
 

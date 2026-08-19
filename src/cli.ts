@@ -15,7 +15,7 @@ import { createProvider } from "./providers/index.js";
 import { writeReports } from "./report.js";
 import type { ExecutionResult, MigrationPlan } from "./types.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const options = parseCliOptions(argv);

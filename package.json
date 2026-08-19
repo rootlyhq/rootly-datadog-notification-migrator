@@ -1,6 +1,6 @@
 {
   "name": "rootly-datadog-notification-migrator",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Interactively migrates Datadog monitor notifications from PagerDuty and Opsgenie to Rootly webhooks.",
   "private": true,
   "license": "MIT",
