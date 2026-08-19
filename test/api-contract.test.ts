@@ -14,14 +14,15 @@ import { createOpsgenieProvider } from "../src/providers/opsgenie.js";
 import { createPagerDutyProvider } from "../src/providers/pagerduty.js";
 import type { DatadogMonitor, WebhookConfiguration } from "../src/types.js";
 
-const monitor: DatadogMonitor = {
+const defaultMonitor: DatadogMonitor = {
   id: 17,
   name: "Production services",
   message: "Notify @pagerduty-API and @opsgenie-Checkout",
 };
 const webhooks = new Map<string, WebhookConfiguration>();
 const requests: { method: string; path: string; authorization?: string }[] = [];
-let updatedMessage = monitor.message;
+let currentMonitor: DatadogMonitor = { ...defaultMonitor };
+let updatedMessage = defaultMonitor.message;
 let baseUrl = "";
 
 const server = createServer((request, response) => {
@@ -48,7 +49,8 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
-  updatedMessage = monitor.message;
+  currentMonitor = { ...defaultMonitor };
+  updatedMessage = currentMonitor.message;
   webhooks.clear();
   requests.length = 0;
 });
@@ -101,6 +103,68 @@ describe("API contracts", () => {
         authorization: "GenieKey og-token",
       }),
     );
+
+    const secondPlan = await engine.plan();
+    expect(secondPlan.issues).toEqual([]);
+    expect(secondPlan.updates).toEqual([]);
+
+    const secondResult = await engine.execute(secondPlan);
+    expect(secondResult.errors).toEqual([]);
+    expect(secondResult.appliedMonitorIds).toEqual([]);
+    expect(
+      requests.filter(
+        ({ method, path }) =>
+          method === "POST" &&
+          path === "/datadog/integration/webhooks/configuration/webhooks",
+      ),
+    ).toHaveLength(2);
+    expect(
+      requests.filter(
+        ({ method, path }) =>
+          method === "PUT" && path === "/datadog/monitor/17",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("updates a synthetic monitor through the synthetics API", async () => {
+    currentMonitor = {
+      id: 23,
+      name: "Synthetic API check",
+      message: "Notify @pagerduty-API",
+      type: "synthetics alert",
+      options: { synthetics_check_id: "api-check" },
+    };
+    updatedMessage = currentMonitor.message;
+    const http = new HttpClient({ maxGetAttempts: 1 });
+    const engine = new MigrationEngine(
+      new DatadogClient(
+        http,
+        `${baseUrl}/datadog`,
+        "dd-api",
+        "dd-app",
+        "rootly-secret",
+      ),
+      new RootlyClient(http, `${baseUrl}/rootly`, "rootly-token"),
+      [
+        {
+          adapter: createPagerDutyProvider(http, `${baseUrl}/pagerduty`),
+          token: "pd-token",
+        },
+      ],
+    );
+
+    const result = await engine.execute(await engine.plan());
+
+    expect(result.errors).toEqual([]);
+    expect(result.appliedMonitorIds).toEqual([23]);
+    expect(updatedMessage).toContain("@webhook-rootly-api");
+    expect(requests).toContainEqual({
+      method: "PATCH",
+      path: "/datadog/synthetics/tests/api-check",
+    });
+    expect(requests).not.toContainEqual(
+      expect.objectContaining({ method: "PUT" }),
+    );
   });
 });
 
@@ -121,17 +185,38 @@ async function route(
   if (method === "GET" && url.pathname === "/datadog/monitor") {
     requireHeader(request, "dd-api-key", "dd-api");
     requireHeader(request, "dd-application-key", "dd-app");
-    respond(response, 200, [{ ...monitor, message: updatedMessage }]);
+    respond(response, 200, [{ ...currentMonitor, message: updatedMessage }]);
     return;
   }
-  if (method === "GET" && url.pathname === "/datadog/monitor/17") {
-    respond(response, 200, { ...monitor, message: updatedMessage });
+  if (
+    method === "GET" &&
+    url.pathname === `/datadog/monitor/${currentMonitor.id}`
+  ) {
+    respond(response, 200, { ...currentMonitor, message: updatedMessage });
     return;
   }
-  if (method === "PUT" && url.pathname === "/datadog/monitor/17") {
+  if (
+    method === "PUT" &&
+    url.pathname === `/datadog/monitor/${currentMonitor.id}`
+  ) {
     const body = (await jsonBody(request)) as DatadogMonitor;
     updatedMessage = body.message;
     respond(response, 200, body);
+    return;
+  }
+  if (
+    method === "PATCH" &&
+    url.pathname === "/datadog/synthetics/tests/api-check"
+  ) {
+    const body = (await jsonBody(request)) as {
+      data?: { value?: unknown }[];
+    };
+    const value = body.data?.[0]?.value;
+    if (typeof value !== "string") {
+      throw new Error("Synthetic patch is missing a string message");
+    }
+    updatedMessage = value;
+    respond(response, 200, { ok: true });
     return;
   }
   if (method === "GET" && url.pathname === "/rootly/services") {
