@@ -47,3 +47,19 @@ updates:
           - patch
         patterns:
           - "*"
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: wednesday
+      time: "06:00"
+    assignees:
+      - kwent
+    labels:
+      - dependencies
+      - security
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+      semver-major-days: 7

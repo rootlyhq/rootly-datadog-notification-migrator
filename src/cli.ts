@@ -3,12 +3,12 @@
 import { confirm } from "@inquirer/prompts";
 import { existsSync } from "node:fs";
 import { loadEnvFile } from "node:process";
-import { pathToFileURL } from "node:url";
 
 import { DatadogClient } from "./clients/datadog.js";
 import { RootlyClient } from "./clients/rootly.js";
 import { collectConfig, parseCliOptions } from "./config.js";
 import { MigrationEngine } from "./engine.js";
+import { isMainModule } from "./entrypoint.js";
 import { errorMessage } from "./errors.js";
 import { HttpClient } from "./http.js";
 import { createProvider } from "./providers/index.js";
@@ -151,10 +151,7 @@ Without --apply, non-interactive runs are previews. Interactive runs always show
 a preview and ask for confirmation before making changes.`;
 }
 
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
+if (isMainModule(import.meta.url, process.argv[1])) {
   main().then(
     (exitCode) => {
       process.exitCode = exitCode;

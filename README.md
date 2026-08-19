@@ -49,6 +49,29 @@ yarn install --immutable
 cp .env.example .env
 ```
 
+## Container
+
+Versioned multi-architecture images are published to GHCR. Run the interactive
+wizard with the current directory mounted for private reports:
+
+```bash
+docker run --rm -it \
+  --env-file .env \
+  --volume "$PWD:/work" \
+  ghcr.io/rootlyhq/rootly-datadog-notification-migrator:0.1.0
+```
+
+Use a version tag in automation instead of `latest`. Release images run as a
+non-root user and include provenance and SBOM attestations. See
+[RELEASING.md](RELEASING.md) for verification commands and the release process.
+
+The same release also contains an installable npm-format tarball:
+
+```bash
+npm install --global \
+  https://github.com/rootlyhq/rootly-datadog-notification-migrator/releases/download/v0.1.0/rootly-datadog-notification-migrator-0.1.0.tgz
+```
+
 Environment variables already set in the shell are detected automatically. If
 a required credential is missing, the interactive wizard prompts for it using
 a masked input.
@@ -151,6 +174,10 @@ coverage thresholds, and the production build. Dependencies are quarantined
 for seven days after publication through Yarn's `npmMinimalAgeGate`; Dependabot
 uses the same seven-day cooldown. All GitHub Actions jobs run on ephemeral
 Blacksmith Ubuntu 24.04 runners.
+
+Contract tests exercise the real HTTP clients and provider adapters against a
+local protocol server, including authentication, response validation, webhook
+creation, and guarded monitor updates.
 
 The project uses a shared migration engine with small provider adapters:
 
