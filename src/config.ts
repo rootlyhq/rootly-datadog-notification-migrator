@@ -20,21 +20,42 @@ export interface CliOptions {
 export interface PromptAdapter {
   selectProvider(): Promise<ProviderSelection>;
   secret(message: string): Promise<string>;
+  section?(title: string, description: string): void;
+  credentialLoaded?(label: string, variable: string): void;
 }
 
 const defaultPrompts: PromptAdapter = {
   async selectProvider() {
     return select<ProviderSelection>({
-      message: "Which notification providers are you migrating from?",
+      message: "Which provider notifications should be migrated?",
       choices: [
-        { name: "PagerDuty and Opsgenie", value: "all" },
-        { name: "PagerDuty", value: "pagerduty" },
-        { name: "Opsgenie", value: "opsgenie" },
+        {
+          name: "PagerDuty and Opsgenie",
+          value: "all",
+          description: "Migrate both notification types in one atomic plan",
+        },
+        {
+          name: "PagerDuty",
+          value: "pagerduty",
+          description: "Migrate @pagerduty-* notifications",
+        },
+        {
+          name: "Opsgenie",
+          value: "opsgenie",
+          description: "Migrate @opsgenie-* notifications",
+        },
       ],
     });
   },
   async secret(message) {
     return password({ message, mask: "*" });
+  },
+  section(title, description) {
+    console.log(`\n${title}`);
+    console.log(description);
+  },
+  credentialLoaded(label, variable) {
+    console.log(`  ✓ ${label} loaded from ${variable}`);
   },
 };
 
@@ -77,18 +98,29 @@ export async function collectConfig(
     process.stdout.isTTY,
   prompts: PromptAdapter = defaultPrompts,
 ): Promise<MigrationConfig> {
+  if (interactive && !options.provider) {
+    prompts.section?.(
+      "Step 1 — Notification providers",
+      "Datadog is always scanned. Choose which existing notification targets to replace with Rootly webhooks.",
+    );
+  }
   const selection =
     options.provider ??
     (interactive ? await prompts.selectProvider() : missingProvider());
   const providerIds: ProviderId[] =
     selection === "all" ? [...PROVIDER_IDS] : [selection];
+  const totalSteps = 3 + providerIds.length;
 
   const credentials: Record<string, string> = {};
+  if (interactive) {
+    prompts.section?.(
+      `Step 2 of ${totalSteps} — Datadog`,
+      "Connect to the Datadog account containing the monitors. Keys are masked and remain in memory.",
+    );
+  }
   const requiredCredentials = [
     ["DATADOG_API_KEY", "Datadog API key"],
     ["DATADOG_APP_KEY", "Datadog application key"],
-    ["ROOTLY_API_TOKEN", "Rootly API token"],
-    ["ROOTLY_ALERT_SOURCE_SECRET", "Rootly alert source secret"],
   ] as const;
   for (const [variable, label] of requiredCredentials) {
     credentials[variable] = await credential(
@@ -100,9 +132,35 @@ export async function collectConfig(
     );
   }
 
+  if (interactive) {
+    prompts.section?.(
+      `Step 3 of ${totalSteps} — Rootly`,
+      "Connect to Rootly and authenticate the Datadog alert-source webhooks that will be created.",
+    );
+  }
+  const rootlyCredentials = [
+    ["ROOTLY_API_TOKEN", "Rootly API token"],
+    ["ROOTLY_ALERT_SOURCE_SECRET", "Rootly alert source secret"],
+  ] as const;
+  for (const [variable, label] of rootlyCredentials) {
+    credentials[variable] = await credential(
+      variable,
+      label,
+      environment,
+      interactive,
+      prompts,
+    );
+  }
+
   const providers = [];
-  for (const provider of providerIds) {
+  for (const [index, provider] of providerIds.entries()) {
     const tokenVariable = tokenEnvironmentVariable(provider);
+    if (interactive) {
+      prompts.section?.(
+        `Step ${index + 4} of ${totalSteps} — ${providerLabel(provider)}`,
+        `Connect to ${providerLabel(provider)} so its services can be matched to Rootly.`,
+      );
+    }
     const token = await credential(
       tokenVariable,
       `${providerLabel(provider)} API token`,
@@ -148,13 +206,16 @@ async function credential(
 ): Promise<string> {
   const value = environment[variable]?.trim();
   if (value) {
+    if (interactive) {
+      prompts.credentialLoaded?.(label, variable);
+    }
     return value;
   }
   if (!interactive) {
     throw new Error(`Missing required environment variable: ${variable}`);
   }
 
-  const entered = (await prompts.secret(label)).trim();
+  const entered = (await prompts.secret(`${label} (${variable})`)).trim();
   if (!entered) {
     throw new Error(`${label} cannot be empty`);
   }

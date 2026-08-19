@@ -80,7 +80,56 @@ describe("collectConfig", () => {
 
     expect(config.providers[0]?.id).toBe("opsgenie");
     expect(prompts.secret).toHaveBeenCalledTimes(5);
-    expect(config.datadogApiKey).toBe("value:Datadog API key");
+    expect(config.datadogApiKey).toBe(
+      "value:Datadog API key (DATADOG_API_KEY)",
+    );
+  });
+
+  it("presents guided sections and identifies credentials loaded from the environment", async () => {
+    const prompts: PromptAdapter = {
+      selectProvider: vi.fn(async (): Promise<ProviderSelection> =>
+        Promise.resolve("pagerduty"),
+      ),
+      secret: vi.fn(async () => Promise.resolve("unused")),
+      section: vi.fn(),
+      credentialLoaded: vi.fn(),
+    };
+
+    await collectConfig(
+      baseOptions,
+      {
+        DATADOG_API_KEY: "dd-api",
+        DATADOG_APP_KEY: "dd-app",
+        ROOTLY_API_TOKEN: "rootly",
+        ROOTLY_ALERT_SOURCE_SECRET: "secret",
+        PAGERDUTY_API_TOKEN: "pd",
+      },
+      true,
+      prompts,
+    );
+
+    expect(prompts.section).toHaveBeenNthCalledWith(
+      1,
+      "Step 1 — Notification providers",
+      expect.stringContaining("Datadog is always scanned"),
+    );
+    expect(prompts.section).toHaveBeenNthCalledWith(
+      2,
+      "Step 2 of 4 — Datadog",
+      expect.any(String),
+    );
+    expect(prompts.section).toHaveBeenNthCalledWith(
+      3,
+      "Step 3 of 4 — Rootly",
+      expect.any(String),
+    );
+    expect(prompts.section).toHaveBeenNthCalledWith(
+      4,
+      "Step 4 of 4 — PagerDuty",
+      expect.any(String),
+    );
+    expect(prompts.credentialLoaded).toHaveBeenCalledTimes(5);
+    expect(prompts.secret).not.toHaveBeenCalled();
   });
 
   it("loads both provider credentials for an all-provider run", async () => {
