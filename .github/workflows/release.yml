@@ -54,7 +54,6 @@ jobs:
         id: assets
         run: |
           mkdir release
-          yarn workspaces focus --all --production
           filename=$(npm pack --ignore-scripts --pack-destination release --json | jq -r '.[0].filename')
           npm sbom --sbom-format spdx > "release/${filename%.tgz}.spdx.json"
           cd release
