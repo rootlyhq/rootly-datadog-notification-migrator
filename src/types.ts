@@ -1,7 +1,7 @@
 export const PROVIDER_IDS = ["pagerduty", "opsgenie"] as const;
 
 export type ProviderId = (typeof PROVIDER_IDS)[number];
-export type ProviderSelection = ProviderId | "all";
+export type ProviderSelection = ProviderId;
 
 export interface ProviderService {
   id: string;
@@ -36,6 +36,7 @@ export interface ProviderAdapter {
   notificationPrefix: string;
   rootlyAttribute: string;
   tokenEnvironmentVariable: string;
+  validateCredentials(token: string): Promise<void>;
   listServices(token: string): Promise<ProviderService[]>;
 }
 

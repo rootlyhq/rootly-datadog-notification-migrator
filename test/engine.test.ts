@@ -55,6 +55,7 @@ function fixture(
     notificationPrefix: "@pagerduty-",
     rootlyAttribute: "pagerduty_id",
     tokenEnvironmentVariable: "PAGERDUTY_API_TOKEN",
+    validateCredentials: vi.fn(async () => Promise.resolve()),
     listServices: vi.fn(async () => Promise.resolve(providerServices)),
   };
 
@@ -209,6 +210,7 @@ describe("MigrationEngine.plan", () => {
       notificationPrefix: "@opsgenie-",
       rootlyAttribute: "opsgenie_id",
       tokenEnvironmentVariable: "OPSGENIE_API_TOKEN",
+      validateCredentials: vi.fn(async () => Promise.resolve()),
       listServices: vi.fn(async () =>
         Promise.resolve([{ id: "og-1", name: "Payments" }]),
       ),
@@ -246,6 +248,7 @@ describe("MigrationEngine.plan", () => {
       notificationPrefix: "@opsgenie-",
       rootlyAttribute: "opsgenie_id",
       tokenEnvironmentVariable: "OPSGENIE_API_TOKEN",
+      validateCredentials: vi.fn(async () => Promise.resolve()),
       listServices: vi.fn(async () =>
         Promise.resolve([{ id: "og-1", name: "API" }]),
       ),

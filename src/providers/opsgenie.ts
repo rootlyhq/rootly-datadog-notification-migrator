@@ -29,25 +29,15 @@ export function createOpsgenieProvider(
     notificationPrefix: "@opsgenie-",
     rootlyAttribute: "opsgenie_id",
     tokenEnvironmentVariable: "OPSGENIE_API_TOKEN",
+    async validateCredentials(token: string): Promise<void> {
+      await fetchPage(token, 1, 0);
+    },
     async listServices(token: string): Promise<ProviderService[]> {
       const services: ProviderService[] = [];
       const limit = 100;
 
       for (let offset = 0; ; offset += limit) {
-        const params = new URLSearchParams({
-          limit: String(limit),
-          offset: String(offset),
-        });
-        const response = await http.request(
-          `${baseUrl}/v1/services?${params.toString()}`,
-          {
-            headers: {
-              Authorization: `GenieKey ${token}`,
-              Accept: "application/json",
-            },
-          },
-          opsgenieResponseSchema,
-        );
+        const response = await fetchPage(token, limit, offset);
         services.push(...response.data);
 
         if (!response.paging?.next || response.data.length === 0) {
@@ -56,4 +46,21 @@ export function createOpsgenieProvider(
       }
     },
   };
+
+  function fetchPage(token: string, limit: number, offset: number) {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
+    return http.request(
+      `${baseUrl}/v1/services?${params.toString()}`,
+      {
+        headers: {
+          Authorization: `GenieKey ${token}`,
+          Accept: "application/json",
+        },
+      },
+      opsgenieResponseSchema,
+    );
+  }
 }

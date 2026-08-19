@@ -33,6 +33,29 @@ describe("DatadogClient", () => {
     );
   });
 
+  it("validates Datadog credentials with a one-monitor request", async () => {
+    const fetchMock = vi.fn(async () =>
+      Promise.resolve(Response.json([])),
+    ) as unknown as typeof fetch;
+    const client = new DatadogClient(
+      new HttpClient({ fetchImplementation: fetchMock }),
+      "https://api.datadoghq.com/api/v1",
+      ...credentials,
+    );
+
+    await client.validateConnection();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("page=0&page_size=1"),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "DD-API-KEY": "api-key",
+          "DD-APPLICATION-KEY": "app-key",
+        }),
+      }),
+    );
+  });
+
   it("creates a webhook when it does not exist", async () => {
     const fetchMock = vi
       .fn()
@@ -165,6 +188,26 @@ describe("webhook validation", () => {
 });
 
 describe("RootlyClient", () => {
+  it("validates the Rootly token with a one-service request", async () => {
+    const fetchMock = vi.fn(async () =>
+      Promise.resolve(Response.json({ data: [] })),
+    ) as unknown as typeof fetch;
+    const client = new RootlyClient(
+      new HttpClient({ fetchImplementation: fetchMock }),
+      "https://api.rootly.com/v1",
+      "token",
+    );
+
+    await client.validateConnection();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("page%5Bnumber%5D=1&page%5Bsize%5D=1"),
+      expect.objectContaining({
+        headers: { Authorization: "Bearer token" },
+      }),
+    );
+  });
+
   it("paginates services until a short page", async () => {
     const firstPage = Array.from({ length: 100 }, (_, index) => ({
       id: String(index),

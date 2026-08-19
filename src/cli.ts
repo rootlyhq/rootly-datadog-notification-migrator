@@ -41,8 +41,30 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     );
   }
 
-  const config = await collectConfig(options, process.env, interactive);
   const http = new HttpClient();
+  const config = await collectConfig(
+    options,
+    process.env,
+    interactive,
+    undefined,
+    {
+      async validateDatadog({ apiUrl, apiKey, appKey }) {
+        await new DatadogClient(
+          http,
+          apiUrl,
+          apiKey,
+          appKey,
+          "unused-during-validation",
+        ).validateConnection();
+      },
+      async validateRootly({ apiUrl, token }) {
+        await new RootlyClient(http, apiUrl, token).validateConnection();
+      },
+      async validateProvider({ id, apiUrl, token }) {
+        await createProvider(id, http, apiUrl).validateCredentials(token);
+      },
+    },
+  );
   const datadog = new DatadogClient(
     http,
     config.datadogApiUrl,
@@ -140,7 +162,7 @@ Usage:
   rootly-datadog-notification-migrator --from <provider> [options]
 
 Options:
-  -f, --from <provider>    pagerduty, opsgenie, or all
+  -f, --from <provider>    pagerduty or opsgenie
       --apply              Apply the previewed changes
       --non-interactive    Disable prompts; credentials come from the environment
   -o, --output <prefix>    Report path prefix (default: run-<timestamp>)

@@ -1,6 +1,7 @@
 import { password, select } from "@inquirer/prompts";
 import { parseArgs } from "node:util";
 
+import { errorMessage } from "./errors.js";
 import { PROVIDER_IDS } from "./types.js";
 import type {
   MigrationConfig,
@@ -22,6 +23,22 @@ export interface PromptAdapter {
   secret(message: string): Promise<string>;
   section?(title: string, description: string): void;
   credentialLoaded?(label: string, variable: string): void;
+  validationStarted?(label: string): void;
+  validationSucceeded?(label: string): void;
+}
+
+export interface ConnectionValidator {
+  validateDatadog(input: {
+    apiUrl: string;
+    apiKey: string;
+    appKey: string;
+  }): Promise<void>;
+  validateRootly(input: { apiUrl: string; token: string }): Promise<void>;
+  validateProvider(input: {
+    id: ProviderId;
+    apiUrl: string;
+    token: string;
+  }): Promise<void>;
 }
 
 const defaultPrompts: PromptAdapter = {
@@ -29,11 +46,6 @@ const defaultPrompts: PromptAdapter = {
     return select<ProviderSelection>({
       message: "Which provider notifications should be migrated?",
       choices: [
-        {
-          name: "PagerDuty and Opsgenie",
-          value: "all",
-          description: "Migrate both notification types in one atomic plan",
-        },
         {
           name: "PagerDuty",
           value: "pagerduty",
@@ -56,6 +68,12 @@ const defaultPrompts: PromptAdapter = {
   },
   credentialLoaded(label, variable) {
     console.log(`  ✓ ${label} loaded from ${variable}`);
+  },
+  validationStarted(label) {
+    console.log(`  … Validating ${label}...`);
+  },
+  validationSucceeded(label) {
+    console.log(`  ✓ ${label} verified`);
   },
 };
 
@@ -97,6 +115,7 @@ export async function collectConfig(
     process.stdin.isTTY &&
     process.stdout.isTTY,
   prompts: PromptAdapter = defaultPrompts,
+  validator?: ConnectionValidator,
 ): Promise<MigrationConfig> {
   if (interactive && !options.provider) {
     prompts.section?.(
@@ -107,9 +126,16 @@ export async function collectConfig(
   const selection =
     options.provider ??
     (interactive ? await prompts.selectProvider() : missingProvider());
-  const providerIds: ProviderId[] =
-    selection === "all" ? [...PROVIDER_IDS] : [selection];
+  const providerIds: ProviderId[] = [selection];
   const totalSteps = 3 + providerIds.length;
+  const datadogApiUrl = validUrl(
+    environment.DATADOG_API_URL ?? "https://api.datadoghq.com/api/v1",
+    "DATADOG_API_URL",
+  );
+  const rootlyApiUrl = validUrl(
+    environment.ROOTLY_API_URL ?? "https://api.rootly.com/v1",
+    "ROOTLY_API_URL",
+  );
 
   const credentials: Record<string, string> = {};
   if (interactive) {
@@ -131,6 +157,19 @@ export async function collectConfig(
       prompts,
     );
   }
+  await validateCheckpoint(
+    "Datadog API access",
+    interactive,
+    prompts,
+    validator
+      ? () =>
+          validator.validateDatadog({
+            apiUrl: datadogApiUrl,
+            apiKey: credentials.DATADOG_API_KEY ?? "",
+            appKey: credentials.DATADOG_APP_KEY ?? "",
+          })
+      : undefined,
+  );
 
   if (interactive) {
     prompts.section?.(
@@ -151,6 +190,18 @@ export async function collectConfig(
       prompts,
     );
   }
+  await validateCheckpoint(
+    "Rootly API token",
+    interactive,
+    prompts,
+    validator
+      ? () =>
+          validator.validateRootly({
+            apiUrl: rootlyApiUrl,
+            token: credentials.ROOTLY_API_TOKEN ?? "",
+          })
+      : undefined,
+  );
 
   const providers = [];
   for (const [index, provider] of providerIds.entries()) {
@@ -168,15 +219,24 @@ export async function collectConfig(
       interactive,
       prompts,
     );
+    const apiUrl = validUrl(
+      provider === "pagerduty"
+        ? (environment.PAGERDUTY_API_URL ?? "https://api.pagerduty.com")
+        : (environment.OPSGENIE_API_URL ?? "https://api.opsgenie.com"),
+      provider === "pagerduty" ? "PAGERDUTY_API_URL" : "OPSGENIE_API_URL",
+    );
+    await validateCheckpoint(
+      `${providerLabel(provider)} API token`,
+      interactive,
+      prompts,
+      validator
+        ? () => validator.validateProvider({ id: provider, apiUrl, token })
+        : undefined,
+    );
     providers.push({
       id: provider,
       token,
-      apiUrl: validUrl(
-        provider === "pagerduty"
-          ? (environment.PAGERDUTY_API_URL ?? "https://api.pagerduty.com")
-          : (environment.OPSGENIE_API_URL ?? "https://api.opsgenie.com"),
-        provider === "pagerduty" ? "PAGERDUTY_API_URL" : "OPSGENIE_API_URL",
-      ),
+      apiUrl,
     });
   }
 
@@ -185,16 +245,31 @@ export async function collectConfig(
     datadogAppKey: credentials.DATADOG_APP_KEY ?? "",
     rootlyApiToken: credentials.ROOTLY_API_TOKEN ?? "",
     rootlyAlertSourceSecret: credentials.ROOTLY_ALERT_SOURCE_SECRET ?? "",
-    datadogApiUrl: validUrl(
-      environment.DATADOG_API_URL ?? "https://api.datadoghq.com/api/v1",
-      "DATADOG_API_URL",
-    ),
-    rootlyApiUrl: validUrl(
-      environment.ROOTLY_API_URL ?? "https://api.rootly.com/v1",
-      "ROOTLY_API_URL",
-    ),
+    datadogApiUrl,
+    rootlyApiUrl,
     providers,
   };
+}
+
+async function validateCheckpoint(
+  label: string,
+  interactive: boolean,
+  prompts: PromptAdapter,
+  validate: (() => Promise<void>) | undefined,
+): Promise<void> {
+  if (!interactive || !validate) {
+    return;
+  }
+
+  prompts.validationStarted?.(label);
+  try {
+    await validate();
+  } catch (error) {
+    throw new Error(`${label} validation failed: ${errorMessage(error)}`, {
+      cause: error,
+    });
+  }
+  prompts.validationSucceeded?.(label);
 }
 
 async function credential(
@@ -231,13 +306,11 @@ function validUrl(value: string, variable: string): string {
 }
 
 function isProviderSelection(value: string): value is ProviderSelection {
-  return value === "all" || PROVIDER_IDS.some((provider) => provider === value);
+  return PROVIDER_IDS.some((provider) => provider === value);
 }
 
 function missingProvider(): never {
-  throw new Error(
-    "Missing --from pagerduty|opsgenie|all in non-interactive mode",
-  );
+  throw new Error("Missing --from pagerduty|opsgenie in non-interactive mode");
 }
 
 function providerLabel(provider: ProviderId): string {
