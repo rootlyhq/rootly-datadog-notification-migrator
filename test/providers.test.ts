@@ -5,6 +5,27 @@ import { createOpsgenieProvider } from "../src/providers/opsgenie.js";
 import { createPagerDutyProvider } from "../src/providers/pagerduty.js";
 
 describe("provider adapters", () => {
+  it("validates PagerDuty credentials with a one-service request", async () => {
+    const fetchMock = vi.fn(async () =>
+      Promise.resolve(Response.json({ services: [], more: false })),
+    ) as unknown as typeof fetch;
+    const provider = createPagerDutyProvider(
+      new HttpClient({ fetchImplementation: fetchMock }),
+      "https://api.pagerduty.com",
+    );
+
+    await provider.validateCredentials("token");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("limit=1&offset=0"),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Token token=token",
+        }),
+      }),
+    );
+  });
+
   it("follows PagerDuty's more flag", async () => {
     const fetchMock = vi
       .fn()
@@ -52,5 +73,24 @@ describe("provider adapters", () => {
       { id: "1", name: "One" },
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("validates Opsgenie credentials with a one-service request", async () => {
+    const fetchMock = vi.fn(async () =>
+      Promise.resolve(Response.json({ data: [] })),
+    ) as unknown as typeof fetch;
+    const provider = createOpsgenieProvider(
+      new HttpClient({ fetchImplementation: fetchMock }),
+      "https://api.opsgenie.com",
+    );
+
+    await provider.validateCredentials("token");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("limit=1&offset=0"),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "GenieKey token" }),
+      }),
+    );
   });
 });

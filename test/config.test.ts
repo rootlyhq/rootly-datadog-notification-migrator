@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   collectConfig,
   parseCliOptions,
+  type ConnectionValidator,
   type PromptAdapter,
 } from "../src/config.js";
 import type { ProviderSelection } from "../src/types.js";
@@ -41,8 +42,10 @@ describe("parseCliOptions", () => {
     );
   });
 
-  it("accepts all providers", () => {
-    expect(parseCliOptions(["--from", "all"]).provider).toBe("all");
+  it("rejects a combined-provider run", () => {
+    expect(() => parseCliOptions(["--from", "all"])).toThrow(
+      "Unsupported provider",
+    );
   });
 });
 
@@ -80,35 +83,107 @@ describe("collectConfig", () => {
 
     expect(config.providers[0]?.id).toBe("opsgenie");
     expect(prompts.secret).toHaveBeenCalledTimes(5);
-    expect(config.datadogApiKey).toBe("value:Datadog API key");
+    expect(config.datadogApiKey).toBe(
+      "value:Datadog API key (DATADOG_API_KEY)",
+    );
   });
 
-  it("loads both provider credentials for an all-provider run", async () => {
-    const config = await collectConfig(
-      { ...baseOptions, provider: "all" },
+  it("presents guided sections and identifies credentials loaded from the environment", async () => {
+    const prompts: PromptAdapter = {
+      selectProvider: vi.fn(async (): Promise<ProviderSelection> =>
+        Promise.resolve("pagerduty"),
+      ),
+      secret: vi.fn(async () => Promise.resolve("unused")),
+      section: vi.fn(),
+      credentialLoaded: vi.fn(),
+      validationStarted: vi.fn(),
+      validationSucceeded: vi.fn(),
+    };
+    const validator: ConnectionValidator = {
+      validateDatadog: vi.fn(async () => Promise.resolve()),
+      validateRootly: vi.fn(async () => Promise.resolve()),
+      validateProvider: vi.fn(async () => Promise.resolve()),
+    };
+
+    await collectConfig(
+      baseOptions,
       {
         DATADOG_API_KEY: "dd-api",
         DATADOG_APP_KEY: "dd-app",
         ROOTLY_API_TOKEN: "rootly",
         ROOTLY_ALERT_SOURCE_SECRET: "secret",
         PAGERDUTY_API_TOKEN: "pd",
-        OPSGENIE_API_TOKEN: "og",
       },
-      false,
+      true,
+      prompts,
+      validator,
     );
 
-    expect(config.providers).toEqual([
-      {
-        id: "pagerduty",
-        token: "pd",
-        apiUrl: "https://api.pagerduty.com",
-      },
-      {
-        id: "opsgenie",
-        token: "og",
-        apiUrl: "https://api.opsgenie.com",
-      },
-    ]);
+    expect(prompts.section).toHaveBeenNthCalledWith(
+      1,
+      "Step 1 — Notification providers",
+      expect.stringContaining("Datadog is always scanned"),
+    );
+    expect(prompts.section).toHaveBeenNthCalledWith(
+      2,
+      "Step 2 of 4 — Datadog",
+      expect.any(String),
+    );
+    expect(prompts.section).toHaveBeenNthCalledWith(
+      3,
+      "Step 3 of 4 — Rootly",
+      expect.any(String),
+    );
+    expect(prompts.section).toHaveBeenNthCalledWith(
+      4,
+      "Step 4 of 4 — PagerDuty",
+      expect.any(String),
+    );
+    expect(prompts.credentialLoaded).toHaveBeenCalledTimes(5);
+    expect(prompts.secret).not.toHaveBeenCalled();
+    expect(validator.validateDatadog).toHaveBeenCalledOnce();
+    expect(validator.validateRootly).toHaveBeenCalledOnce();
+    expect(validator.validateProvider).toHaveBeenCalledOnce();
+    expect(prompts.validationSucceeded).toHaveBeenCalledTimes(3);
+  });
+
+  it("stops before Rootly when Datadog credentials fail validation", async () => {
+    const prompts: PromptAdapter = {
+      selectProvider: vi.fn(async (): Promise<ProviderSelection> =>
+        Promise.resolve("pagerduty"),
+      ),
+      secret: vi.fn(async () => Promise.resolve("unused")),
+      section: vi.fn(),
+      credentialLoaded: vi.fn(),
+      validationStarted: vi.fn(),
+      validationSucceeded: vi.fn(),
+    };
+    const validator: ConnectionValidator = {
+      validateDatadog: vi.fn(async () => Promise.reject(new Error("HTTP 403"))),
+      validateRootly: vi.fn(async () => Promise.resolve()),
+      validateProvider: vi.fn(async () => Promise.resolve()),
+    };
+
+    await expect(
+      collectConfig(
+        baseOptions,
+        {
+          DATADOG_API_KEY: "wrong",
+          DATADOG_APP_KEY: "wrong",
+          ROOTLY_API_TOKEN: "rootly",
+          ROOTLY_ALERT_SOURCE_SECRET: "secret",
+          PAGERDUTY_API_TOKEN: "pd",
+        },
+        true,
+        prompts,
+        validator,
+      ),
+    ).rejects.toThrow("Datadog API access validation failed: HTTP 403");
+
+    expect(validator.validateRootly).not.toHaveBeenCalled();
+    expect(validator.validateProvider).not.toHaveBeenCalled();
+    expect(prompts.section).toHaveBeenCalledTimes(2);
+    expect(prompts.validationSucceeded).not.toHaveBeenCalled();
   });
 
   it("fails when automation credentials are missing", async () => {

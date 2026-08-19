@@ -96,13 +96,16 @@ yarn start
 
 The wizard:
 
-1. Selects PagerDuty, Opsgenie, or both providers in one run.
-2. Collects only missing credentials.
-3. validates the three API connections and response shapes.
-4. Discovers source notifications and Rootly service mappings.
-5. Shows the number of monitors, webhooks, changes, and blocking issues.
-6. Asks whether to apply the previewed changes.
-7. Writes sanitized JSON and CSV reports.
+1. Explains that Datadog is the monitor source and Rootly is the destination.
+2. Selects either PagerDuty or Opsgenie as the notification provider.
+3. Walks through dedicated Datadog, Rootly, and provider credential stages.
+4. Identifies credentials already loaded from the environment and securely
+   prompts only for missing values.
+5. Validates each API connection before moving to the next credential stage.
+6. Discovers source notifications and Rootly service mappings.
+7. Shows the number of monitors, webhooks, changes, and blocking issues.
+8. Asks whether to apply the previewed changes.
+9. Writes sanitized JSON and CSV reports.
 
 Choosing not to apply is a successful preview and makes no changes.
 
@@ -119,16 +122,6 @@ Apply Opsgenie migrations:
 ```bash
 yarn start --from opsgenie --non-interactive --apply
 ```
-
-Preview both providers in a single atomic plan:
-
-```bash
-yarn start --from all --non-interactive
-```
-
-An `all` run requires both provider tokens. It scans Datadog and Rootly once,
-combines all proposed monitor changes into one preview, and blocks apply if the
-providers would reuse a webhook name for different Rootly services.
 
 Choose a report path prefix:
 

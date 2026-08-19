@@ -55,21 +55,17 @@ export class DatadogClient {
     const pageSize = 100;
 
     for (let page = 0; ; page += 1) {
-      const params = new URLSearchParams({
-        page: String(page),
-        page_size: String(pageSize),
-      });
-      const response = await this.#http.request(
-        `${this.#apiUrl}/monitor?${params.toString()}`,
-        { headers: this.#headers },
-        monitorsSchema,
-      );
+      const response = await this.#listMonitorsPage(page, pageSize);
       monitors.push(...response);
 
       if (response.length < pageSize) {
         return monitors;
       }
     }
+  }
+
+  async validateConnection(): Promise<void> {
+    await this.#listMonitorsPage(0, 1);
   }
 
   async getMonitor(id: number): Promise<DatadogMonitor> {
@@ -177,6 +173,21 @@ export class DatadogClient {
       }
       throw error;
     }
+  }
+
+  async #listMonitorsPage(
+    page: number,
+    pageSize: number,
+  ): Promise<DatadogMonitor[]> {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    return this.#http.request(
+      `${this.#apiUrl}/monitor?${params.toString()}`,
+      { headers: this.#headers },
+      monitorsSchema,
+    );
   }
 }
 
