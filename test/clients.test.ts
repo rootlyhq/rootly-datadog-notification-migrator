@@ -13,11 +13,12 @@ const credentials = ["api-key", "app-key", "alert-secret"] as const;
 
 describe("DatadogClient", () => {
   it("lists monitors and validates response data", async () => {
-    const fetchMock = vi.fn(async () =>
-      Promise.resolve(
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
         Response.json([{ id: 1, name: "Monitor", message: "hello" }]),
-      ),
-    ) as unknown as typeof fetch;
+      )
+      .mockResolvedValueOnce(Response.json([])) as unknown as typeof fetch;
     const client = new DatadogClient(
       new HttpClient({ fetchImplementation: fetchMock }),
       "https://api.datadoghq.com/api/v1/",
@@ -26,7 +27,7 @@ describe("DatadogClient", () => {
 
     await expect(client.listMonitors()).resolves.toHaveLength(1);
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("page=0&page_size=100"),
+      expect.stringContaining("id_offset=0&page_size=100"),
       expect.objectContaining({
         headers: expect.objectContaining({ "DD-API-KEY": "api-key" }),
       }),
@@ -46,13 +47,60 @@ describe("DatadogClient", () => {
     await client.validateConnection();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("page=0&page_size=1"),
+      expect.stringContaining("id_offset=0&page_size=1"),
       expect.objectContaining({
         headers: expect.objectContaining({
           "DD-API-KEY": "api-key",
           "DD-APPLICATION-KEY": "app-key",
         }),
       }),
+    );
+  });
+
+  it("uses a stable ID cursor until Datadog returns an empty page", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      message: `monitor ${index + 1}`,
+    }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(firstPage))
+      .mockResolvedValueOnce(Response.json([{ id: 101, message: "last" }]))
+      .mockResolvedValueOnce(Response.json([])) as unknown as typeof fetch;
+    const client = new DatadogClient(
+      new HttpClient({ fetchImplementation: fetchMock }),
+      "https://api.datadoghq.com/api/v1",
+      ...credentials,
+    );
+
+    await expect(client.listMonitors()).resolves.toHaveLength(101);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("id_offset=100"),
+      expect.anything(),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      expect.stringContaining("id_offset=101"),
+      expect.anything(),
+    );
+  });
+
+  it("fails closed if Datadog's monitor cursor does not advance", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json([{ id: 1, message: "first" }]))
+      .mockResolvedValueOnce(
+        Response.json([{ id: 1, message: "duplicate" }]),
+      ) as unknown as typeof fetch;
+    const client = new DatadogClient(
+      new HttpClient({ fetchImplementation: fetchMock }),
+      "https://api.datadoghq.com/api/v1",
+      ...credentials,
+    );
+
+    await expect(client.listMonitors()).rejects.toThrow(
+      "pagination did not advance",
     );
   });
 

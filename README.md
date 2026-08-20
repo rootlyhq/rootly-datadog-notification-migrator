@@ -18,6 +18,8 @@ before modifying Datadog. A non-interactive mode is available for automation.
 - Interactive runs require confirmation after showing the plan.
 - Ambiguous or missing service mappings block the entire apply phase.
 - Existing Datadog webhooks are checked for the expected Rootly target.
+- Monitor discovery uses Datadog's stable ID cursor, retries transient reads,
+  and aborts the plan if any page cannot be fetched completely.
 - A monitor changed after preview is not overwritten.
 - Monitor updates are skipped when their webhook cannot be created or verified.
 - Credentials entered into the wizard remain in memory and are never written to

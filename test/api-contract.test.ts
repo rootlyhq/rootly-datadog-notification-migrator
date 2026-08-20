@@ -197,7 +197,14 @@ async function route(
   if (method === "GET" && url.pathname === "/datadog/monitor") {
     requireHeader(request, "dd-api-key", "dd-api");
     requireHeader(request, "dd-application-key", "dd-app");
-    respond(response, 200, [{ ...currentMonitor, message: updatedMessage }]);
+    const idOffset = Number(url.searchParams.get("id_offset") ?? "0");
+    respond(
+      response,
+      200,
+      currentMonitor.id > idOffset
+        ? [{ ...currentMonitor, message: updatedMessage }]
+        : [],
+    );
     return;
   }
   if (
