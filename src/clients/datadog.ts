@@ -53,14 +53,27 @@ export class DatadogClient {
   async listMonitors(): Promise<DatadogMonitor[]> {
     const monitors: DatadogMonitor[] = [];
     const pageSize = 100;
+    let idOffset = 0;
 
-    for (let page = 0; ; page += 1) {
-      const response = await this.#listMonitorsPage(page, pageSize);
-      monitors.push(...response);
+    for (;;) {
+      const response = await this.#listMonitorsPage(idOffset, pageSize);
 
-      if (response.length < pageSize) {
+      if (response.length === 0) {
         return monitors;
       }
+
+      let nextOffset = idOffset;
+      for (const monitor of response) {
+        if (monitor.id <= nextOffset) {
+          throw new Error(
+            `Datadog monitor pagination did not advance beyond ID ${nextOffset}`,
+          );
+        }
+        nextOffset = monitor.id;
+      }
+
+      monitors.push(...response);
+      idOffset = nextOffset;
     }
   }
 
@@ -176,11 +189,11 @@ export class DatadogClient {
   }
 
   async #listMonitorsPage(
-    page: number,
+    idOffset: number,
     pageSize: number,
   ): Promise<DatadogMonitor[]> {
     const params = new URLSearchParams({
-      page: String(page),
+      id_offset: String(idOffset),
       page_size: String(pageSize),
     });
     return this.#http.request(

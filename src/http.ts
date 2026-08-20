@@ -8,19 +8,23 @@ export interface HttpClientOptions {
   fetchImplementation?: FetchImplementation;
   timeoutMs?: number;
   maxGetAttempts?: number;
+  sleep?: (delayMs: number) => Promise<void>;
 }
 
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const MAX_SERVER_RETRY_DELAY_MS = 5 * 60 * 1000;
 
 export class HttpClient {
   readonly #fetch: FetchImplementation;
   readonly #timeoutMs: number;
   readonly #maxGetAttempts: number;
+  readonly #sleep: (delayMs: number) => Promise<void>;
 
   constructor(options: HttpClientOptions = {}) {
     this.#fetch = options.fetchImplementation ?? fetch;
     this.#timeoutMs = options.timeoutMs ?? 10_000;
     this.#maxGetAttempts = options.maxGetAttempts ?? 3;
+    this.#sleep = options.sleep ?? sleep;
   }
 
   async request<T>(
@@ -45,8 +49,11 @@ export class HttpClient {
           throw error;
         }
 
-        await new Promise((resolve) =>
-          setTimeout(resolve, 250 * 2 ** (attempt - 1)),
+        const exponentialDelayMs = 250 * 2 ** (attempt - 1);
+        await this.#sleep(
+          error instanceof ApiError && error.retryAfterMs !== undefined
+            ? error.retryAfterMs
+            : exponentialDelayMs,
         );
       }
     }
@@ -80,6 +87,7 @@ export class HttpClient {
           `${options.method ?? "GET"} ${safeUrl(url)} failed with HTTP ${response.status}`,
           response.status,
           body,
+          retryDelayFrom(response),
         );
       }
 
@@ -95,6 +103,38 @@ export class HttpClient {
       clearTimeout(timeout);
     }
   }
+}
+
+function retryDelayFrom(response: Response): number | undefined {
+  const retryAfter = response.headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    const delayMs = Number.isFinite(seconds)
+      ? seconds * 1000
+      : Date.parse(retryAfter) - Date.now();
+    if (Number.isFinite(delayMs) && delayMs >= 0) {
+      return Math.min(delayMs, MAX_SERVER_RETRY_DELAY_MS);
+    }
+  }
+
+  if (response.status !== 429) {
+    return undefined;
+  }
+
+  const reset = response.headers.get("x-ratelimit-reset");
+  if (reset === null) {
+    return undefined;
+  }
+
+  const resetSeconds = Number(reset);
+  if (Number.isFinite(resetSeconds) && resetSeconds >= 0) {
+    return Math.min(resetSeconds * 1000, MAX_SERVER_RETRY_DELAY_MS);
+  }
+  return undefined;
+}
+
+function sleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 async function parseResponseBody(response: Response): Promise<unknown> {
